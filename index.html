@@ -662,7 +662,7 @@ function renderListaInq(){
         <div class="inq-dia">${t.dia||'—'}</div>
         <div class="inq-info"><div class="inq-nom">${t.nombre}${t.interior?' <span style="color:var(--dim);font-weight:400">· '+t.interior+'</span>':''}</div>
         <div class="inq-sub">${t.servicios||t.destino||t.estatus||''}</div></div>
-        <div><div class="inq-monto">${fmt(t.renta)}</div>${ts?`<div class="inq-tstamp">✓ ${ts}</div>`:''}</div></div>`;
+        <div><div class="inq-monto">${fmt(t.renta)}</div>${ts?`<div class="inq-tstamp">✓ ${ts}${pago?.destino?' · '+pago.destino:''}</div>`:''}</div></div>`;
     });
     html+=`</div></div>`;
   });
@@ -671,43 +671,133 @@ function renderListaInq(){
 }
 function toggleInm(inm){expandedInm[inm]=expandedInm[inm]===false?true:false;renderListaInq();}
 
+const DESTINOS_COMUNES=['EFE','BANORTE','HSBC','SANT','BBVA','MIFIEL','SCOTIA','AZTECA','CAJA'];
+
 function confirmTogglePago(iid,m,a){
   const t=DB.inquilinos.find(x=>x.id===iid);if(!t)return;
-  const paid=isPagado(iid,m,a);
-  if(paid){
-    modal(`<div class="ms"><div class="mh"></div>
-      <div class="confirm-msg"><div style="font-size:42px;margin-bottom:8px">↩️</div>
-      <div class="confirm-q">¿Quitar pago?</div>
-      <div class="confirm-sub">${t.nombre}<br>${MF[m-1]} ${a} · ${fmt(t.renta)}</div></div>
-      <div class="confirm-btns"><button class="btn bd" onclick="closeM()">No</button>
-      <button class="btn bs" onclick="doTogglePago('${iid}',${m},${a},false)">Sí, quitar</button></div></div>`);
-  }else{
-    modal(`<div class="ms"><div class="mh"></div>
-      <div class="confirm-msg"><div style="font-size:42px;margin-bottom:8px">💰</div>
-      <div class="confirm-q">¿Confirmar pago recibido?</div>
-      <div class="confirm-sub">${t.nombre}<br>${t.inmueble}${t.interior?' · '+t.interior:''}</div></div>
-      <div class="card" style="text-align:center;margin-bottom:14px;background:var(--s2)">
-      <div style="font-size:11px;color:var(--dim)">Monto a registrar</div>
-      <div style="font-family:'Playfair Display',serif;font-size:24px;color:var(--g);margin:4px 0">
-      <input id="confirm-monto" type="number" value="${t.renta}" style="background:none;border:none;color:var(--g);text-align:center;font:inherit;width:100%;outline:none"></div>
-      <div style="font-size:11px;color:var(--dim)">${MF[m-1]} ${a}</div></div>
-      <div class="confirm-btns"><button class="btn bd" onclick="closeM()">No</button>
-      <button class="btn bs" onclick="doTogglePago('${iid}',${m},${a},true)">Sí, pagado</button></div></div>`);
-  }
+  if(isPagado(iid,m,a)) openEditPago(iid,m,a);
+  else openMarkPago(iid,m,a);
 }
 
-function doTogglePago(iid,m,a,marcar){
-  if(marcar){
-    const monto=Number(document.getElementById('confirm-monto')?.value||0);
-    const t=DB.inquilinos.find(x=>x.id===iid);
-    DB.pagos=DB.pagos.filter(p=>!(p.iid===iid&&p.mes===m&&p.anio===a));
-    DB.pagos.push({id:uid(),iid,mes:m,anio:a,monto:monto||t.renta,pagado:true,fecha_pago:nowISO(),metodo:'efectivo'});
-    saveDB('pagos');snack(`✓ Pago registrado · ${fmt(monto)}`);
-  }else{
-    DB.pagos=DB.pagos.filter(p=>!(p.iid===iid&&p.mes===m&&p.anio===a));
-    saveDB('pagos');snack('Pago eliminado');
-  }
+function openMarkPago(iid,m,a){
+  const t=DB.inquilinos.find(x=>x.id===iid);if(!t)return;
+  const now=new Date();
+  const todayLocal=now.toLocaleDateString('en-CA');
+  const horaNow=now.toTimeString().slice(0,5);
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="confirm-msg">
+      <div style="font-size:42px;margin-bottom:8px">💰</div>
+      <div class="confirm-q">Confirmar pago recibido</div>
+      <div class="confirm-sub">${t.nombre}<br>${t.inmueble}${t.interior?' · '+t.interior:''} · ${MF[m-1]} ${a}</div>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Monto $ *</label>
+        <input class="fi" type="number" id="p-monto" value="${t.renta}"></div>
+      <div class="fg"><label class="fl">Destino</label>
+        <input class="fi" id="p-dest" value="${t.destino||'EFE'}" list="dest-list" placeholder="EFE">
+        <datalist id="dest-list">${DESTINOS_COMUNES.map(d=>`<option value="${d}">`).join('')}</datalist></div>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Fecha</label>
+        <input class="fi" type="date" id="p-fecha" value="${todayLocal}"></div>
+      <div class="fg"><label class="fl">Hora</label>
+        <input class="fi" type="time" id="p-hora" value="${horaNow}"></div>
+    </div>
+    <div class="fg"><label class="fl">Método</label>
+      <select class="fi" id="p-met">
+        <option value="efectivo" selected>Efectivo</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="deposito">Depósito</option>
+        <option value="cheque">Cheque</option>
+        <option value="otro">Otro</option>
+      </select></div>
+    <div class="confirm-btns">
+      <button class="btn bd" onclick="closeM()">Cancelar</button>
+      <button class="btn bs" onclick="doMarkPago('${iid}',${m},${a})">Confirmar pago</button>
+    </div></div>`);
+}
+
+function doMarkPago(iid,m,a){
+  const t=DB.inquilinos.find(x=>x.id===iid);
+  const monto=Number(document.getElementById('p-monto').value);
+  const destino=document.getElementById('p-dest').value.trim();
+  const fecha=document.getElementById('p-fecha').value;
+  const hora=document.getElementById('p-hora').value;
+  const metodo=document.getElementById('p-met').value;
+  if(!monto||!fecha||!hora){snack('Completa los campos');return;}
+  const fechaPago=new Date(fecha+'T'+hora+':00').toISOString();
+  DB.pagos=DB.pagos.filter(p=>!(p.iid===iid&&p.mes===m&&p.anio===a));
+  DB.pagos.push({id:uid(),iid,mes:m,anio:a,monto,pagado:true,fecha_pago:fechaPago,destino,metodo});
+  saveDB('pagos');
   closeM();
+  snack(`✓ Pago registrado · ${fmt(monto)}${destino?' → '+destino:''}`);
+  if(curView==='con')renderCon();else if(curView==='dash')renderDash();else if(curView==='det')renderDet();
+  updNotif();
+}
+
+function openEditPago(iid,m,a){
+  const t=DB.inquilinos.find(x=>x.id===iid);if(!t)return;
+  const p=getPago(iid,m,a);if(!p)return;
+  const fp=new Date(p.fecha_pago);
+  const fechaStr=fp.toLocaleDateString('en-CA');
+  const horaStr=fp.toTimeString().slice(0,5);
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="confirm-msg">
+      <div style="font-size:42px;margin-bottom:8px">✏️</div>
+      <div class="confirm-q">Editar pago</div>
+      <div class="confirm-sub">${t.nombre}<br>${t.inmueble}${t.interior?' · '+t.interior:''} · ${MF[m-1]} ${a}</div>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Monto $ *</label>
+        <input class="fi" type="number" id="p-monto" value="${p.monto}"></div>
+      <div class="fg"><label class="fl">Destino</label>
+        <input class="fi" id="p-dest" value="${p.destino||t.destino||''}" list="dest-list">
+        <datalist id="dest-list">${DESTINOS_COMUNES.map(d=>`<option value="${d}">`).join('')}</datalist></div>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Fecha</label>
+        <input class="fi" type="date" id="p-fecha" value="${fechaStr}"></div>
+      <div class="fg"><label class="fl">Hora</label>
+        <input class="fi" type="time" id="p-hora" value="${horaStr}"></div>
+    </div>
+    <div class="fg"><label class="fl">Método</label>
+      <select class="fi" id="p-met">
+        <option value="efectivo"${(p.metodo==='efectivo'||!p.metodo)?' selected':''}>Efectivo</option>
+        <option value="transferencia"${p.metodo==='transferencia'?' selected':''}>Transferencia</option>
+        <option value="deposito"${p.metodo==='deposito'?' selected':''}>Depósito</option>
+        <option value="cheque"${p.metodo==='cheque'?' selected':''}>Cheque</option>
+        <option value="otro"${p.metodo==='otro'?' selected':''}>Otro</option>
+      </select></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn bd" onclick="doRemovePago('${iid}',${m},${a})">🗑️ Quitar</button>
+      <button class="btn bs bfu" onclick="doUpdatePago('${iid}',${m},${a},'${p.id}')">Guardar cambios</button>
+    </div></div>`);
+}
+
+function doUpdatePago(iid,m,a,pid){
+  const monto=Number(document.getElementById('p-monto').value);
+  const destino=document.getElementById('p-dest').value.trim();
+  const fecha=document.getElementById('p-fecha').value;
+  const hora=document.getElementById('p-hora').value;
+  const metodo=document.getElementById('p-met').value;
+  if(!monto||!fecha||!hora){snack('Completa los campos');return;}
+  const p=DB.pagos.find(x=>x.id===pid);if(!p)return;
+  p.monto=monto;p.destino=destino;
+  p.fecha_pago=new Date(fecha+'T'+hora+':00').toISOString();
+  p.metodo=metodo;
+  saveDB('pagos');
+  closeM();
+  snack('✓ Pago actualizado');
+  if(curView==='con')renderCon();else if(curView==='dash')renderDash();else if(curView==='det')renderDet();
+  updNotif();
+}
+
+function doRemovePago(iid,m,a){
+  if(!confirm('¿Eliminar este pago?'))return;
+  DB.pagos=DB.pagos.filter(p=>!(p.iid===iid&&p.mes===m&&p.anio===a));
+  saveDB('pagos');
+  closeM();
+  snack('Pago eliminado');
   if(curView==='con')renderCon();else if(curView==='dash')renderDash();else if(curView==='det')renderDet();
   updNotif();
 }
@@ -734,7 +824,7 @@ function renderHistorial(){
     const fp=p.fecha_pago?new Date(p.fecha_pago):null;
     const fStr=fp?fp.toLocaleString('es-MX',{day:'2-digit',month:'short',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
     html+=`<div class="pr"><div class="pi"><div class="pn">${t?.nombre||'(eliminado)'}</div>
-    <div class="pd">${t?.inmueble||''}${t?.interior?' · '+t.interior:''} · ${fStr}</div></div>
+    <div class="pd">${t?.inmueble||''}${t?.interior?' · '+t.interior:''} · ${fStr}${p.destino?' · '+p.destino:''}</div></div>
     <div class="pa">${fmt(p.monto)}</div></div>`;
   });
   html+=`</div>`;
@@ -912,7 +1002,11 @@ function renderResumen(){
 // ─── EXPORTS ─────────────────────────────────────
 function exportExcelMes(){
   const act=DB.inquilinos.filter(i=>i.estado==='activo');
-  const rows=[['Pagado','FECHA','LUGAR','NOMBRE','INT','CANTIDAD','DESTINO','SERVICIOS','ESTATUS','RENOVACIÓN','COMENTARIOS','MEDIDOR DE LUZ','CONTRATO VIGENTE','FECHA DE PAGO']];
+  if(act.length===0){
+    snack('⚠️ No hay inquilinos activos. ¿Se completó la sincronización?');
+    return;
+  }
+  const rows=[['Pagado','FECHA','LUGAR','NOMBRE','INT','CANTIDAD','DESTINO','SERVICIOS','ESTATUS','RENOVACIÓN','COMENTARIOS','MEDIDOR DE LUZ','CONTRATO VIGENTE','FECHA DE PAGO','MÉTODO']];
   const grupos={};
   act.forEach(i=>{if(!grupos[i.inmueble])grupos[i.inmueble]=[];grupos[i.inmueble].push(i);});
   Object.keys(grupos).sort().forEach(inm=>{
@@ -921,7 +1015,8 @@ function exportExcelMes(){
       const p=getPago(i.id,curMes,curAnio);
       const dia=i.dia===30?0.3:i.dia;
       const fp=p?.fecha_pago?new Date(p.fecha_pago).toLocaleString('es-MX'):'';
-      rows.push([p?true:false,dia,i.inmueble,i.nombre,i.interior||'',i.renta,i.destino||'',i.servicios||'',i.estatus||'Al corriente',i.renovacion||'',i.comentarios||'',i.medidor||'',i.contrato_vigente||'',fp]);
+      const dest=p?.destino||i.destino||'';
+      rows.push([p?true:false,dia,i.inmueble,i.nombre,i.interior||'',p?.monto||i.renta,dest,i.servicios||'',i.estatus||'Al corriente',i.renovacion||'',i.comentarios||'',i.medidor||'',i.contrato_vigente||'',fp,p?.metodo||'']);
     });
   });
   rows.push([]);
@@ -931,30 +1026,36 @@ function exportExcelMes(){
   rows.push(['','','','TOTAL COBRADO:','',totalCob]);
   rows.push(['','','','PENDIENTE:','',totalEsp-totalCob]);
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{w:8},{w:8},{w:18},{w:30},{w:8},{w:12},{w:10},{w:18},{w:14},{w:14},{w:25},{w:10},{w:14},{w:20}];
+  ws['!cols']=[{w:8},{w:8},{w:18},{w:30},{w:8},{w:12},{w:10},{w:18},{w:14},{w:14},{w:25},{w:10},{w:14},{w:20},{w:12}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,`${MF[curMes-1].toUpperCase()} ${curAnio}`);
   XLSX.writeFile(wb,`lista_inquilinaria_${MN[curMes-1]}_${curAnio}.xlsx`);
-  snack('📥 Excel descargado');
+  snack(`📥 Excel con ${act.length} inquilinos`);
 }
 
 function exportExcelMovs(){
   const r=getRange(rangeMode);
+  const pagosFiltered=DB.pagos.filter(p=>{if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);return d>=r.ini&&d<=r.fin;});
+  const gastosFiltered=DB.gastos.filter(g=>{const d=new Date(g.fecha);return d>=r.ini&&d<=r.fin;});
+  if(pagosFiltered.length===0&&gastosFiltered.length===0){
+    snack(`⚠️ Sin movimientos en ${r.label}. Cambia el periodo.`);
+    return;
+  }
   const wb=XLSX.utils.book_new();
   // Sheet 1: Ingresos
-  const ingRows=[['FECHA','HORA','INQUILINO','INMUEBLE','INTERIOR','MES PAGADO','MONTO','MÉTODO']];
-  DB.pagos.filter(p=>{if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);return d>=r.ini&&d<=r.fin;}).sort((a,b)=>new Date(a.fecha_pago)-new Date(b.fecha_pago)).forEach(p=>{
+  const ingRows=[['FECHA','HORA','INQUILINO','INMUEBLE','INTERIOR','MES PAGADO','MONTO','DESTINO','MÉTODO']];
+  pagosFiltered.sort((a,b)=>new Date(a.fecha_pago)-new Date(b.fecha_pago)).forEach(p=>{
     const t=DB.inquilinos.find(i=>i.id===p.iid);const d=new Date(p.fecha_pago);
-    ingRows.push([d.toLocaleDateString('es-MX'),d.toLocaleTimeString('es-MX'),t?.nombre||'',t?.inmueble||'',t?.interior||'',MF[p.mes-1]+' '+p.anio,p.monto,p.metodo||'efectivo']);
+    ingRows.push([d.toLocaleDateString('es-MX'),d.toLocaleTimeString('es-MX'),t?.nombre||'',t?.inmueble||'',t?.interior||'',MF[p.mes-1]+' '+p.anio,p.monto,p.destino||'',p.metodo||'efectivo']);
   });
-  const totalIng=DB.pagos.filter(p=>{if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);return d>=r.ini&&d<=r.fin;}).reduce((s,p)=>s+Number(p.monto),0);
+  const totalIng=pagosFiltered.reduce((s,p)=>s+Number(p.monto),0);
   ingRows.push([]);ingRows.push(['','','','','','TOTAL:',totalIng]);
   const ws1=XLSX.utils.aoa_to_sheet(ingRows);
-  ws1['!cols']=[{w:12},{w:10},{w:30},{w:18},{w:10},{w:16},{w:12},{w:14}];
+  ws1['!cols']=[{w:12},{w:10},{w:30},{w:18},{w:10},{w:16},{w:12},{w:12},{w:14}];
   XLSX.utils.book_append_sheet(wb,ws1,'Ingresos');
   // Sheet 2: Gastos
   const gRows=[['FECHA','CATEGORÍA','DESCRIPCIÓN','INMUEBLE','MONTO','NOTAS']];
-  const gastos=DB.gastos.filter(g=>{const d=new Date(g.fecha);return d>=r.ini&&d<=r.fin;}).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+  const gastos=gastosFiltered.sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
   gastos.forEach(g=>{
     const c=CATS_GASTO[g.categoria]||CATS_GASTO.otros;
     gRows.push([new Date(g.fecha).toLocaleDateString('es-MX'),c.n,g.descripcion,g.inmueble||'',g.monto,g.notas||'']);
@@ -972,7 +1073,8 @@ function exportExcelMovs(){
   ws3['!cols']=[{w:35},{w:15}];
   XLSX.utils.book_append_sheet(wb,ws3,'Resumen');
   const fn=`movimientos_${r.ini.toISOString().slice(0,10)}_${r.fin.toISOString().slice(0,10)}.xlsx`;
-  XLSX.writeFile(wb,fn);snack('📥 Excel descargado');
+  XLSX.writeFile(wb,fn);
+  snack(`📥 Excel · ${pagosFiltered.length} ingresos, ${gastos.length} gastos`);
 }
 
 // ─── Inquilinos CRUD ───────────────────────────────
