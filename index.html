@@ -10,6 +10,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+
 <style>
 :root{--bg:#0f0f0f;--s1:#1a1a1a;--s2:#252525;--s3:#2e2e2e;--gold:#D4A843;--gdim:#9A7A2F;--txt:#F0EAD6;--dim:#777;--r:#E05C5C;--g:#5CB87A;--y:#E0B840;--b:#5B9BD5;--p:#B074D4;--nav:68px;--rad:14px}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:'DM Sans',sans-serif}
@@ -153,15 +157,51 @@ textarea.fi{resize:vertical;min-height:60px}
 .full-img{position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:999;display:flex;align-items:center;justify-content:center;padding:20px}
 .full-img img{max-width:100%;max-height:100%;border-radius:8px}
 .full-img button{position:absolute;top:20px;right:20px;background:rgba(255,255,255,.1);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer}
+
+.login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0f0f0f,#1a1a1a);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:998;padding:30px;text-align:center}
+.login-logo{font-family:'Playfair Display',serif;font-size:42px;color:#D4A843;letter-spacing:1.5px;margin-bottom:8px}
+.login-sub{font-size:11px;color:#666;letter-spacing:4px;text-transform:uppercase;margin-bottom:60px}
+.login-msg{color:#888;font-size:13px;margin-bottom:30px;line-height:1.6;max-width:320px}
+.btn-google{background:#fff;color:#222;border:none;padding:12px 22px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:10px;box-shadow:0 4px 18px rgba(0,0,0,.3)}
+.btn-google:active{transform:scale(.97)}
+.cloud-status{position:fixed;top:0;left:50%;transform:translateX(-50%);max-width:430px;width:100%;font-size:9px;text-align:center;padding:2px 0;background:#0a0a0a;color:#555;z-index:15;border-bottom:1px solid #1a1a1a;letter-spacing:.5px;text-transform:uppercase}
+.cloud-status.syncing{color:#D4A843}
+.cloud-status.synced{color:#5CB87A}
+.cloud-status.error{color:#E05C5C}
+.cloud-status.offline{color:#777}
 </style>
 </head>
 <body>
+<div class="login-screen" id="login-overlay" style="display:none">
+  <div class="login-logo">Rentas</div>
+  <div class="login-sub">Gestión Inmobiliaria</div>
+  <div class="login-msg">Inicia sesión con tu cuenta de Google para sincronizar tus datos entre todos tus dispositivos.</div>
+  <button class="btn-google" onclick="signInGoogle()">
+    <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+    Continuar con Google
+  </button>
+  <div style="font-size:10px;color:#444;margin-top:40px;max-width:300px;line-height:1.5">Tus datos se guardan en tu cuenta de Firebase. Solo tú tienes acceso.</div>
+</div>
+<div class="cloud-status" id="cloud-status">Sin sincronización</div>
+
 <div id="app">
   <div id="splash" style="position:fixed;inset:0;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999">
     <div style="font-family:'Playfair Display',serif;font-size:30px;color:#D4A843;letter-spacing:1px">Rentas</div>
     <div style="font-size:11px;color:#444;margin-top:8px;letter-spacing:3px;text-transform:uppercase">Gestión Inmobiliaria</div>
     <div style="width:44px;height:2px;background:#D4A843;border-radius:2px;margin-top:28px;animation:pu 1s infinite alternate"></div>
-    <style>@keyframes pu{from{opacity:.2}to{opacity:1}}</style>
+    <style>@keyframes pu{from{opacity:.2}to{opacity:1}}
+.login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0f0f0f,#1a1a1a);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:998;padding:30px;text-align:center}
+.login-logo{font-family:'Playfair Display',serif;font-size:42px;color:#D4A843;letter-spacing:1.5px;margin-bottom:8px}
+.login-sub{font-size:11px;color:#666;letter-spacing:4px;text-transform:uppercase;margin-bottom:60px}
+.login-msg{color:#888;font-size:13px;margin-bottom:30px;line-height:1.6;max-width:320px}
+.btn-google{background:#fff;color:#222;border:none;padding:12px 22px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:10px;box-shadow:0 4px 18px rgba(0,0,0,.3)}
+.btn-google:active{transform:scale(.97)}
+.cloud-status{position:fixed;top:0;left:50%;transform:translateX(-50%);max-width:430px;width:100%;font-size:9px;text-align:center;padding:2px 0;background:#0a0a0a;color:#555;z-index:15;border-bottom:1px solid #1a1a1a;letter-spacing:.5px;text-transform:uppercase}
+.cloud-status.syncing{color:#D4A843}
+.cloud-status.synced{color:#5CB87A}
+.cloud-status.error{color:#E05C5C}
+.cloud-status.offline{color:#777}
+</style>
   </div>
   <header class="hdr" id="hdr">
     <div><div class="hdr-t" id="hdr-t">Panel</div><div class="hdr-s" id="hdr-s"></div></div>
@@ -203,6 +243,212 @@ let pendingPhotos=[];
 
 const SEED={"inquilinos":[{"id":"inq001","nombre":"LETICIA CASTILLO RODRIGUEZ","inmueble":"ETEN 595","interior":"3.0","renta":7500.0,"dia":30,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2016-05-01","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq002","nombre":"COCHES","inmueble":"PATA ROSA","interior":"E","renta":1000.0,"dia":30,"destino":"SANT","servicios":"NO APLICA","estatus":"Al corriente","renovacion":"2017-03-02","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq003","nombre":"RAUL CANDELARIO","inmueble":"XOCO","interior":"3B","renta":9500.0,"dia":30,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2009-04-01","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq004","nombre":"CRISTINA","inmueble":"XOCO","interior":"4A","renta":7500.0,"dia":30,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2017-03-01","comentarios":"aumento de renta","contrato_vigente":"No","estado":"activo"},{"id":"inq005","nombre":"FERNANDA","inmueble":"XOCO","interior":"8.0","renta":10300.0,"dia":30,"destino":"HSBC","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2025-03-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq006","nombre":"PILAR SANCHEZ ACEVEDO","inmueble":"PATA ROSA","interior":"3.0","renta":7800.0,"dia":30,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Debe","renovacion":"2025-06-01","comentarios":"PAR","contrato_vigente":"Si","estado":"activo"},{"id":"inq007","nombre":"HUMBERTO IVAN VALDEZ","inmueble":"CALLE 24","interior":"4.0","renta":8600.0,"dia":30,"destino":"EFE","servicios":"INTERNOS","estatus":"AL CORRIENTE","renovacion":"2025-05-01","comentarios":"","contrato_vigente":"SI","estado":"activo"},{"id":"inq008","nombre":"ANGEL","inmueble":"AEROLITO","interior":"9.0","renta":10000.0,"dia":30,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-05-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq009","nombre":"FRANCISCO Y JACQUELINE","inmueble":"AEROLITO","interior":"7 & MOTO","renta":8550.0,"dia":1,"destino":"BANORTE","servicios":"1300.0","estatus":"Al corriente","renovacion":"2025-03-01","comentarios":"MAYO, JULIO, SEPTIEMBRE, NOVIEMBRE, ENERO","contrato_vigente":"Si","estado":"activo"},{"id":"inq010","nombre":"RODRIGO \"CHINO\" RUEDA","inmueble":"CALLE 24","interior":"E","renta":10000.0,"dia":1,"destino":"SANT","servicios":"300 de LUZ /INTERNOS","estatus":"Al corriente","renovacion":"2023-07-01","comentarios":"NO PAGO EL ACOMPLETO DE DEPOSITO (TIENE 2 DE 9 MIL)","contrato_vigente":"No","estado":"activo"},{"id":"inq011","nombre":"SARA PODOLOGA","inmueble":"NORTE 5109","interior":"4.0","renta":8140.0,"dia":1,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-06-01","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq012","nombre":"HAZEL ALVAREZ","inmueble":"NORTE 5124","interior":"6.0","renta":8250.0,"dia":1,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2024-09-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq013","nombre":"HIJOS DE LUVIA","inmueble":"NORTE 5A 4826","interior":"3.0","renta":7000.0,"dia":1,"destino":"EFE","servicios":"-","estatus":"Al corriente","renovacion":"2017-04-17","comentarios":"DEBEN 500 PARA ACOMPLETAR EL DEPOSITO","contrato_vigente":"No","estado":"activo"},{"id":"inq014","nombre":"VICENTE CASTAÑEDA primer pago","inmueble":"XOCO","interior":"5A","renta":3100.0,"dia":1,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2009-07-01","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq015","nombre":"ILDA XOCO","inmueble":"XOCO","interior":"1.0","renta":7300.0,"dia":1,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2024-06-24","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq016","nombre":"LUIS JAVIER MARTINEZ","inmueble":"XOCO","interior":"3.0","renta":8100.0,"dia":1,"destino":"EFE","servicios":"NO INCLUYE","estatus":"Al corriente","renovacion":"2025-03-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq017","nombre":"AXEL DORSACO GARCIA","inmueble":"CALLE 24","interior":"7.0","renta":6500.0,"dia":1,"destino":"EFE","servicios":"LUZ APARTE","estatus":"Al corriente","renovacion":"2025-11-25","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq018","nombre":"ISRAEL Y MARIO","inmueble":"CALLE 24","interior":"3.0","renta":7800.0,"dia":2,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2025-02-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq019","nombre":"JOSE RUBEN Y SOFIA YARELI","inmueble":"NORTE 5109","interior":"3.0","renta":9350.0,"dia":2,"destino":"EFE","servicios":"800.0","estatus":"Al corriente","renovacion":"2025-06-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq020","nombre":"PETRA","inmueble":"CALLE 24","interior":"7.0","renta":8850.0,"dia":3,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2024-12-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq021","nombre":"ARQ. ANA KAREN","inmueble":"PATA VERDE","interior":"4.0","renta":8600.0,"dia":3,"destino":"EFE","servicios":"LUZ APARTE","estatus":"Al corriente","renovacion":"2025-04-25","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq022","nombre":"NAYELI SOLIS","inmueble":"XOCO","interior":"2.0","renta":7480.0,"dia":3,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2024-09-01","comentarios":"se divide la luz con el de arriba","contrato_vigente":"Si","estado":"activo"},{"id":"inq023","nombre":"STEPHANIE TALIA MENDEZ MORALES","inmueble":"PATA ROSA","interior":"1.0","renta":7350.0,"dia":5,"destino":"EFE/BANORTE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-02-05","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq024","nombre":"ANA ELIZABETH JUAREZ MENESES","inmueble":"CALLE 19","interior":"3.0","renta":7050.0,"dia":6,"destino":"EFE","servicios":"SI INCLUYE","estatus":"Al corriente","renovacion":"2025-10-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq025","nombre":"EMILIO","inmueble":"AV 45 METROS","interior":"7.0","renta":3600.0,"dia":7,"destino":"HSBC","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2023-08-22","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq026","nombre":"SANDRA DANIELA DIAZ","inmueble":"CALLE 24","interior":"8.0","renta":8000.0,"dia":9,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2025-05-01","comentarios":"","contrato_vigente":"SI","estado":"activo"},{"id":"inq027","nombre":"MARIANA GIL ELIZALDE","inmueble":"PATA VERDE","interior":"3.0","renta":7300.0,"dia":9,"destino":"EFE","servicios":"LUZ APARTE","estatus":"Al corriente","renovacion":"2025-05-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq028","nombre":"DANIELA RIOS","inmueble":"NORTE 5A 4826","interior":"4.0","renta":7300.0,"dia":12,"destino":"EFE/MIFIEL","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2024-12-01","comentarios":"PENDIENTE DE FIRMA","contrato_vigente":"Si","estado":"activo"},{"id":"inq029","nombre":"ITZEL Y JESUS","inmueble":"PATA ROSA","interior":"5.0","renta":7130.0,"dia":12,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-01-01","comentarios":"terminación de contrato","contrato_vigente":"Si","estado":"activo"},{"id":"inq030","nombre":"EDUARDO SUZAN","inmueble":"PATA ROSA","interior":"6.0","renta":8000.0,"dia":12,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2024-12-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq031","nombre":"ISAAC SANCHEZ COLIN","inmueble":"AEROLITO","interior":"6.0","renta":9900.0,"dia":13,"destino":"EFE","servicios":"INCLUIDOS*","estatus":"Al corriente","renovacion":"2023-10-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq032","nombre":"MAX","inmueble":"NORTE 5124","interior":"4.0","renta":7500.0,"dia":13,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2018-10-01","comentarios":"PAR","contrato_vigente":"No","estado":"activo"},{"id":"inq033","nombre":"ERNESTO SAN MILLAN VAZQUEZ","inmueble":"AEROLITO","interior":"1.0","renta":8700.0,"dia":14,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-07-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq034","nombre":"FRANSISCO SANCHEZ","inmueble":"AEROLITO","interior":"5.0","renta":7000.0,"dia":15,"destino":"EFE","servicios":"1300.0","estatus":"Con atraso","renovacion":"2025-01-01","comentarios":"DEBE 1000 DEPOSITO","contrato_vigente":"No","estado":"activo"},{"id":"inq035","nombre":"GUSTAVO CRUZ ESPINOS","inmueble":"JASPE","interior":"4.0","renta":8200.0,"dia":15,"destino":"EFE","servicios":"800.0","estatus":"Al corriente","renovacion":"2024-06-24","comentarios":"AGOSTO,OCTUBRE, DICIEMBRE, FEBRERO, ABRIL, JUNIO","contrato_vigente":"Si","estado":"activo"},{"id":"inq036","nombre":"ABRILBARBOSA","inmueble":"NORTE 5109","interior":"5.0","renta":8000.0,"dia":15,"destino":"EFE/BANAMEX","servicios":"500.0","estatus":"Al corriente","renovacion":"2025-07-15","comentarios":"SEPTIEMBRE, NOVIEMBRE, ENERO, MARZO, MAYO, JULIO","contrato_vigente":"Si","estado":"activo"},{"id":"inq037","nombre":"JOSE MANUEL RUTIAGA","inmueble":"NORTE 5109","interior":"1.0","renta":7890.0,"dia":15,"destino":"EFE","servicios":"500.0","estatus":"Al corriente","renovacion":"2024-08-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq038","nombre":"JANET F","inmueble":"NORTE 5109","interior":"2.0","renta":2500.0,"dia":15,"destino":"EFE/ MIFIEL","servicios":"500.0","estatus":"Al corriente","renovacion":"2022-04-01","comentarios":"IMPAR","contrato_vigente":"No","estado":"activo"},{"id":"inq039","nombre":"VICENTE CASTAÑEDA","inmueble":"XOCO","interior":"5A","renta":3100.0,"dia":15,"destino":"EFE","servicios":"INTERNOS","estatus":"Al corriente","renovacion":"2009-07-01","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq040","nombre":"PRIMO MAURICIO","inmueble":"AV 45 METROS","interior":"3.0","renta":3600.0,"dia":15,"destino":"BANAMEX","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2023-08-01","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq041","nombre":"YESICA NEGRETE PÉREZ","inmueble":"ZAPATA","interior":"4.0","renta":3500.0,"dia":15,"destino":"EFE","servicios":"LUZ APARTE","estatus":"Al corriente","renovacion":"2026-12-25","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq042","nombre":"ROBERTO PEREZ GARCÍA","inmueble":"ZAPATA","interior":"2.0","renta":3300.0,"dia":15,"destino":"EFE","servicios":"LUZ APARTE","estatus":"Al corriente","renovacion":"2026-12-25","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq043","nombre":"RAFEL REYES ROBLES","inmueble":"NORTE 5124","interior":"5.0","renta":8000.0,"dia":17,"destino":"EFE/SANT","servicios":"INCLUIDOS","estatus":"Con atraso","renovacion":"2024-12-01","comentarios":"DEBE DEPOSITO","contrato_vigente":"Si","estado":"activo"},{"id":"inq044","nombre":"MERCEDES ALVAREZ","inmueble":"PATA ROSA","interior":"4.0","renta":7810.0,"dia":17,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-01-01","comentarios":"DEBE DEPOSITO","contrato_vigente":"Si","estado":"activo"},{"id":"inq045","nombre":"ROMAN JANACUA","inmueble":"PATA ROSA","interior":"2.0","renta":8910.0,"dia":18,"destino":"BANORTE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-01-01","comentarios":"DEBE DEPOSITO","contrato_vigente":"Si","estado":"activo"},{"id":"inq046","nombre":"FRANSISCO ARQUI","inmueble":"CALLE 19","interior":"1.0","renta":10000.0,"dia":13,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-07-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq047","nombre":"SUSANA TENORIO","inmueble":"NORTE 5124","interior":"4.0","renta":8100.0,"dia":20,"destino":"EFE","servicios":"NO INCLUYE","estatus":"Al corriente","renovacion":"2024-10-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq048","nombre":"VIANCA  G. ROMERO- ALEXIS","inmueble":"AEROLITO","interior":"A2","renta":8250.0,"dia":22,"destino":"EFE","servicios":"NO INCLUYE","estatus":"Al corriente","renovacion":"2024-05-24","comentarios":"JULIO, SEPTIEMBRE, NOVIEMBRE, ENERO, MARZO","contrato_vigente":"Si","estado":"activo"},{"id":"inq049","nombre":"MISAEL ISSAI","inmueble":"JASPE","interior":"1.0","renta":9300.0,"dia":22,"destino":"EFE","servicios":"LUZ APARTE","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq050","nombre":"DOLORES XITHE","inmueble":"PATA ROSA","interior":"7.0","renta":6050.0,"dia":23,"destino":"BANORTE","servicios":"800.0","estatus":"Al corriente","renovacion":"2024-03-19","comentarios":"PAR","contrato_vigente":"No","estado":"activo"},{"id":"inq051","nombre":"ANTONIO PUGA","inmueble":"CALLE 19","interior":"2.0","renta":6500.0,"dia":24,"destino":"BANORTE","servicios":"200.0","estatus":"Al corriente","renovacion":"2022-01-01","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq052","nombre":"GUSTAVO ADOLFO VILLANUEVA","inmueble":"JASPE","interior":"8.0","renta":9200.0,"dia":24,"destino":"EFE","servicios":"500.0","estatus":"Al corriente","renovacion":"2023-03-01","comentarios":"LUZ APARTE","contrato_vigente":"Si","estado":"activo"},{"id":"inq053","nombre":"MARIA DEL CARMEN LOPEZ SALAZAR","inmueble":"JASPE","interior":"7.0","renta":6600.0,"dia":24,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2024-03-01","comentarios":"TOPE DE LUZ DE $150","contrato_vigente":"Si","estado":"activo"},{"id":"inq054","nombre":"ALEJANDRO MARTINEZ MORALES- FANNY","inmueble":"JASPE","interior":"2.0","renta":7790.0,"dia":25,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Debe","renovacion":"2024-02-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq055","nombre":"ALEJANDRO GAYTAN","inmueble":"JASPE","interior":"A3","renta":6300.0,"dia":25,"destino":"EFE","servicios":"NO INCLUYE","estatus":"Al corriente","renovacion":"2024-11-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq056","nombre":"LUIS ALBERTO MEDINA","inmueble":"ZAPATA","interior":"4.0","renta":4400.0,"dia":26,"destino":"EFE","servicios":"NO INCLUYE","estatus":"Al corriente","renovacion":"2025-05-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq057","nombre":"JOEL GONZALEZ","inmueble":"CALLE 24","interior":"2.0","renta":6800.0,"dia":26,"destino":"EFE","servicios":"INTERNOS","estatus":"AL CORRIENTE","renovacion":"2025-05-01","comentarios":"","contrato_vigente":"SI","estado":"activo"},{"id":"inq058","nombre":"RICARDO ALVAREZ RAMOS","inmueble":"AEROLITO","interior":"8.0","renta":8600.0,"dia":27,"destino":"EFE","servicios":"INCLUIDOS","estatus":"Al corriente","renovacion":"2025-02-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq059","nombre":"LUIS MANUEL RIVERA","inmueble":"CALLE 24","interior":"8.0","renta":6500.0,"dia":27,"destino":"HSBC","servicios":"INTERNOS","estatus":"Con atraso","renovacion":"2012-11-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq060","nombre":"EMMANUEL ALEJANDRO AVILA","inmueble":"AEROLITO","interior":"4.0","renta":8500.0,"dia":28,"destino":"SANT","servicios":"500.0","estatus":"Al corriente","renovacion":"2024-04-01","comentarios":"VA A PAGAR 500 MÁS CADA MES","contrato_vigente":"Si","estado":"activo"},{"id":"inq061","nombre":"CINDY ANDY FERNANDEZ JARAMILLO","inmueble":"CALLE 19","interior":"4.0","renta":10200.0,"dia":28,"destino":"EFE","servicios":"800.0","estatus":"Al corriente","renovacion":"2024-06-23","comentarios":"OCTUBRE, DICIEMBRE, FEBRERO, ABRIL, JUNIO","contrato_vigente":"Si","estado":"activo"},{"id":"inq062","nombre":"FABIAN GOMEZ TELLEZ","inmueble":"NORTE 5124","interior":"1.0","renta":6000.0,"dia":28,"destino":"EFE","servicios":"300.0","estatus":"Al corriente","renovacion":"2011-03-01","comentarios":"PAR","contrato_vigente":"No","estado":"activo"},{"id":"inq063","nombre":"CLAUDIA RAMIREZ","inmueble":"AEROLITO","interior":"3.0","renta":10000.0,"dia":29,"destino":"EFE","servicios":"LUZ APARTE","estatus":"Al corriente","renovacion":"2025-02-01","comentarios":"","contrato_vigente":"Si","estado":"activo"},{"id":"inq064","nombre":"VACÍO","inmueble":"ETEN 687","interior":"2.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq065","nombre":"VACÍO","inmueble":"ETEN 687","interior":"3.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq066","nombre":"VACÍO","inmueble":"JASPE","interior":"4.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq067","nombre":"VACÍO","inmueble":"NORTE 5124","interior":"2.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq068","nombre":"VACÍO","inmueble":"NORTE 5A 4826","interior":"1.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq069","nombre":"VACÍO","inmueble":"ETEN 595","interior":"2.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq070","nombre":"VACÍO","inmueble":"NORTE 5A 4826","interior":"2.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq071","nombre":"VACÍO","inmueble":"PATA VERDE","interior":"1.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq072","nombre":"VACÍO","inmueble":"PATA VERDE","interior":"2.0","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"},{"id":"inq073","nombre":"VACÍO","inmueble":"NORTE 5109","interior":"AZOTEA","renta":0,"dia":1,"destino":"","servicios":"","estatus":"Al corriente","renovacion":"","comentarios":"","contrato_vigente":"No","estado":"activo"}],"pagos":[{"iid":"inq001","mes":1,"anio":2026,"monto":7500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq003","mes":1,"anio":2026,"monto":9500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq004","mes":1,"anio":2026,"monto":7500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq005","mes":1,"anio":2026,"monto":10300.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq006","mes":1,"anio":2026,"monto":7800.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq007","mes":1,"anio":2026,"monto":8600.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq008","mes":1,"anio":2026,"monto":10000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq009","mes":1,"anio":2026,"monto":8550.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq010","mes":1,"anio":2026,"monto":10000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq011","mes":1,"anio":2026,"monto":8140.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq012","mes":1,"anio":2026,"monto":8250.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq013","mes":1,"anio":2026,"monto":7000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq014","mes":1,"anio":2026,"monto":3100.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq015","mes":1,"anio":2026,"monto":7300.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq016","mes":1,"anio":2026,"monto":8100.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq017","mes":1,"anio":2026,"monto":6500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq019","mes":1,"anio":2026,"monto":9350.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq020","mes":1,"anio":2026,"monto":8850.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq021","mes":1,"anio":2026,"monto":8600.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq022","mes":1,"anio":2026,"monto":7480.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq023","mes":1,"anio":2026,"monto":7350.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq024","mes":1,"anio":2026,"monto":7050.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq025","mes":1,"anio":2026,"monto":3600.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq026","mes":1,"anio":2026,"monto":8000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq027","mes":1,"anio":2026,"monto":7300.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq028","mes":1,"anio":2026,"monto":7300.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq029","mes":1,"anio":2026,"monto":7130.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq030","mes":1,"anio":2026,"monto":8000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq031","mes":1,"anio":2026,"monto":9900.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq032","mes":1,"anio":2026,"monto":7500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq033","mes":1,"anio":2026,"monto":8700.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq034","mes":1,"anio":2026,"monto":7000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq035","mes":1,"anio":2026,"monto":8200.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq036","mes":1,"anio":2026,"monto":8000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq038","mes":1,"anio":2026,"monto":2500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq039","mes":1,"anio":2026,"monto":3100.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq040","mes":1,"anio":2026,"monto":3600.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq041","mes":1,"anio":2026,"monto":3500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq042","mes":1,"anio":2026,"monto":3300.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq043","mes":1,"anio":2026,"monto":8000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq044","mes":1,"anio":2026,"monto":7810.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq045","mes":1,"anio":2026,"monto":8910.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq046","mes":1,"anio":2026,"monto":10000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq048","mes":1,"anio":2026,"monto":8250.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq049","mes":1,"anio":2026,"monto":9300.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq050","mes":1,"anio":2026,"monto":6050.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq051","mes":1,"anio":2026,"monto":6500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq052","mes":1,"anio":2026,"monto":9200.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq053","mes":1,"anio":2026,"monto":6600.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq054","mes":1,"anio":2026,"monto":7790.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq056","mes":1,"anio":2026,"monto":4400.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq057","mes":1,"anio":2026,"monto":6800.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq058","mes":1,"anio":2026,"monto":8600.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq060","mes":1,"anio":2026,"monto":8500.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq061","mes":1,"anio":2026,"monto":10200.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq062","mes":1,"anio":2026,"monto":6000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"},{"iid":"inq063","mes":1,"anio":2026,"monto":10000.0,"pagado":true,"fecha_pago":"2026-01-15T10:00:00"}]};
 
+
+// ═══════════════════════════════════════════════════════
+// FIREBASE / CLOUD SYNC
+// ═══════════════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey: "AIzaSyDfO_aDox5n7-b-ZU0jteX9i2CtjtCsa_8",
+  authDomain: "rentas-app-a5d28.firebaseapp.com",
+  projectId: "rentas-app-a5d28",
+  storageBucket: "rentas-app-a5d28.firebasestorage.app",
+  messagingSenderId: "875783728681",
+  appId: "1:875783728681:web:8463b7761739adccfdf638"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const fdb = firebase.firestore();
+fdb.enablePersistence({synchronizeTabs:true}).catch(e=>console.log('persistence:',e.code));
+
+let currentUser = null;
+let cloudSyncEnabled = false;
+let cloudUnsubs = [];
+let saveTimers = {};
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes'];
+const PHOTO_COLLS = ['obras','incidentes']; // photos stay in localStorage
+
+function setCloudStatus(state, msg) {
+  const el = document.getElementById('cloud-status');
+  if (!el) return;
+  el.className = 'cloud-status ' + state;
+  el.textContent = msg;
+}
+
+function stripPhotos(coll, item) {
+  if (PHOTO_COLLS.includes(coll) && item.fotos) {
+    const {fotos, ...rest} = item;
+    return {...rest, _hasPhotos: fotos.length, _photoDevice: navigator.userAgent.slice(0,50)};
+  }
+  return item;
+}
+
+async function signInGoogle() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  try {
+    await auth.signInWithPopup(provider);
+  } catch (e) {
+    if (e.code === 'auth/popup-blocked') {
+      try { await auth.signInWithRedirect(provider); } catch(e2) { alert('Error: '+e2.message); }
+    } else {
+      alert('Error al iniciar sesión: ' + e.message);
+    }
+  }
+}
+
+async function signOutCloud() {
+  if (!confirm('¿Cerrar sesión?\n\nLos datos en este dispositivo se conservan, pero ya no se sincronizan hasta que vuelvas a entrar.'))return;
+  cloudUnsubs.forEach(u=>u());
+  cloudUnsubs = [];
+  cloudSyncEnabled = false;
+  await auth.signOut();
+  location.reload();
+}
+
+auth.onAuthStateChanged(async user => {
+  if (user) {
+    currentUser = user;
+    cloudSyncEnabled = true;
+    document.getElementById('login-overlay').style.display = 'none';
+    setCloudStatus('syncing', '☁️ Sincronizando...');
+    await initialCloudSync();
+    subscribeToCloud();
+    setCloudStatus('synced', '☁️ ' + (user.email||'Conectado'));
+  } else {
+    currentUser = null;
+    cloudSyncEnabled = false;
+    document.getElementById('login-overlay').style.display = 'flex';
+    setCloudStatus('offline', 'Sin sincronización');
+  }
+});
+
+async function initialCloudSync() {
+  const uid = currentUser.uid;
+  try {
+    // Check if cloud has data
+    const probe = await fdb.doc(`users/${uid}/data/inquilinos`).get();
+    if (!probe.exists || !probe.data()?.items?.length) {
+      // First time: upload everything from localStorage
+      if (DB.inquilinos && DB.inquilinos.length > 0) {
+        await uploadAllToCloud();
+        snack('☁️ Datos iniciales subidos a la nube');
+      }
+    } else {
+      await downloadAllFromCloud();
+      snack('☁️ Datos descargados de la nube');
+    }
+  } catch (e) {
+    console.error('Initial sync error:', e);
+    setCloudStatus('error', '⚠️ Error de sincronización');
+  }
+}
+
+async function uploadAllToCloud() {
+  const uid = currentUser.uid;
+  for (const k of SYNC_COLLS) {
+    if (!DB[k]) DB[k] = [];
+    const items = DB[k].map(item => stripPhotos(k, item));
+    await fdb.doc(`users/${uid}/data/${k}`).set({
+      items, updated: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+}
+
+async function downloadAllFromCloud() {
+  const uid = currentUser.uid;
+  for (const k of SYNC_COLLS) {
+    try {
+      const doc = await fdb.doc(`users/${uid}/data/${k}`).get();
+      if (!doc.exists) continue;
+      let cloudItems = doc.data().items || [];
+      
+      if (PHOTO_COLLS.includes(k)) {
+        // Preserve local photos
+        const localMap = {};
+        (DB[k]||[]).forEach(item => { if (item.fotos) localMap[item.id] = item.fotos; });
+        cloudItems = cloudItems.map(item => {
+          if (localMap[item.id]) return {...item, fotos: localMap[item.id]};
+          return {...item, fotos: []};
+        });
+      }
+      DB[k] = cloudItems;
+      saveDBLocal(k);
+    } catch (e) {
+      console.error(`Load ${k}:`, e);
+    }
+  }
+  rerender();
+}
+
+function subscribeToCloud() {
+  const uid = currentUser.uid;
+  cloudUnsubs.forEach(u => u());
+  cloudUnsubs = [];
+  
+  SYNC_COLLS.forEach(k => {
+    const unsub = fdb.doc(`users/${uid}/data/${k}`).onSnapshot(doc => {
+      if (doc.metadata.hasPendingWrites) return; // local write - skip
+      if (!doc.exists) return;
+      
+      let cloudItems = doc.data().items || [];
+      if (PHOTO_COLLS.includes(k)) {
+        const localMap = {};
+        (DB[k]||[]).forEach(item => { if (item.fotos) localMap[item.id] = item.fotos; });
+        cloudItems = cloudItems.map(item => {
+          if (localMap[item.id]) return {...item, fotos: localMap[item.id]};
+          return {...item, fotos: []};
+        });
+      }
+      DB[k] = cloudItems;
+      saveDBLocal(k);
+      setCloudStatus('synced','☁️ Actualizado · ' + new Date().toLocaleTimeString('es-MX'));
+      rerender();
+    }, err => {
+      console.error('Snapshot error:', err);
+      setCloudStatus('error', '⚠️ Error: ' + err.code);
+    });
+    cloudUnsubs.push(unsub);
+  });
+}
+
+function rerender() {
+  if (curView === 'dash') renderDash();
+  else if (curView === 'con') renderCon();
+  else if (curView === 'inq') renderInqList?.() || renderInq();
+  else if (curView === 'rep') renderRep();
+  else if (curView === 'svc') renderSvc();
+  else if (curView === 'det') renderDet();
+  updNotif();
+}
+
+// Local-only save (was previously called saveDB)
+function saveDBLocal(k){
+  try{localStorage.setItem("rentas_"+k,JSON.stringify(DB[k]))}
+  catch(e){snack("⚠️ Almacenamiento lleno")}
+}
+
+function cloudSaveDebounced(k) {
+  if (!cloudSyncEnabled || !currentUser) return;
+  clearTimeout(saveTimers[k]);
+  setCloudStatus('syncing','☁️ Guardando...');
+  saveTimers[k] = setTimeout(() => cloudSaveNow(k), 700);
+}
+
+async function cloudSaveNow(k) {
+  if (!currentUser) return;
+  const uid = currentUser.uid;
+  try {
+    if (!DB[k]) DB[k] = [];
+    const items = DB[k].map(item => stripPhotos(k, item));
+    await fdb.doc(`users/${uid}/data/${k}`).set({
+      items, updated: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    setCloudStatus('synced','☁️ Guardado · ' + new Date().toLocaleTimeString('es-MX'));
+  } catch (e) {
+    console.error('Cloud save error:', e);
+    setCloudStatus('error', '⚠️ Sin conexión — se guardó local');
+  }
+}
+
 // ─── Storage ───────────────────────────────────────────
 function loadDB(){
   let firstRun=true;
@@ -217,8 +463,8 @@ function loadDB(){
   }
 }
 function saveDB(k){
-  try{localStorage.setItem("rentas_"+k,JSON.stringify(DB[k]))}
-  catch(e){snack("⚠️ Almacenamiento lleno. Borra fotos antiguas.")}
+  saveDBLocal(k);
+  cloudSaveDebounced(k);
 }
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5)}
 
@@ -918,6 +1164,8 @@ function renderRep(){
     <input class="fi" id="rep-search" placeholder="🔍 Buscar inquilino..." oninput="renderRepInqList()" style="margin-bottom:10px">
     <div id="rep-inq-list"></div>
     
+    <div class="st" style="margin-top:14px">☁️ Cuenta</div>
+    <div class="ro" onclick="signOutCloud()" id="logout-row" style="${currentUser?'':'display:none'}"><div style="font-size:24px">👤</div><div><div class="rtit">${currentUser?.email||'No conectado'}</div><div class="rdesc">Cerrar sesión / cambiar cuenta</div></div></div>
     <div class="st" style="margin-top:14px">⚙️ Datos</div>
     <div class="ro" onclick="exportFullBackup()"><div style="font-size:24px">💾</div><div><div class="rtit">Respaldo completo</div><div class="rdesc">JSON con todos los datos</div></div></div>
     <div class="ro" onclick="importJSON()"><div style="font-size:24px">📤</div><div><div class="rtit">Importar respaldo</div><div class="rdesc">Cargar JSON previo</div></div></div>
@@ -1515,9 +1763,10 @@ function genPDFIncidente(id){
 
 // ─── Init ──────────────────────────────────────────────
 function init(){
-  loadDB();
+  loadDB(); // load from localStorage first (works offline)
   document.getElementById("splash").style.display="none";
   renderDash();updNotif();
+  // Firebase auth handler will then upgrade to cloud sync if user is logged in
 }
 init();
 </script>
