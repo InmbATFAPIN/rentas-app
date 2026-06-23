@@ -228,8 +228,8 @@ textarea.fi{resize:vertical;min-height:60px}
 </div>
 <script>
 // ─── State ─────────────────────────────────────────────
-let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[]};
-let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null;
+let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[]};
+let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null,propFilter='todos';
 const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MF=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const CATS_GASTO={carros:{n:'Carros',i:'🚗',c:'#5B9BD5'},mantenimiento:{n:'Mantenimiento',i:'🔧',c:'#D4A843'},mano_obra:{n:'Mano de obra',i:'👷',c:'#E58A2C'},servicios:{n:'Pago de servicios',i:'💡',c:'#E0B840'},otros:{n:'Otros',i:'📋',c:'#888'}};
@@ -264,7 +264,7 @@ let currentUser = null;
 let cloudSyncEnabled = false;
 let cloudUnsubs = [];
 let saveTimers = {};
-const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes'];
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles'];
 const PHOTO_COLLS = ['obras','incidentes']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
@@ -430,7 +430,7 @@ function cloudSaveDebounced(k) {
   if (!cloudSyncEnabled || !currentUser) return;
   clearTimeout(saveTimers[k]);
   setCloudStatus('syncing','☁️ Guardando...');
-  saveTimers[k] = setTimeout(() => cloudSaveNow(k), 700);
+  saveTimers[k] = setTimeout(() => cloudSaveNow(k), 150);
 }
 
 async function cloudSaveNow(k) {
@@ -452,7 +452,7 @@ async function cloudSaveNow(k) {
 // ─── Storage ───────────────────────────────────────────
 function loadDB(){
   let firstRun=true;
-  ["inquilinos","pagos","servicios","gastos","obras","incidentes"].forEach(k=>{
+  ["inquilinos","pagos","servicios","gastos","obras","incidentes","otros_ingresos","inmuebles"].forEach(k=>{
     try{const v=localStorage.getItem("rentas_"+k);if(v){DB[k]=JSON.parse(v);if(k==="inquilinos"&&DB[k].length>0)firstRun=false;}}catch(e){}
   });
   if(firstRun){
@@ -622,7 +622,14 @@ function renderListaInq(){
     chips+=`<span class="chip${sel?' on':''}" onclick="curMes=${m};curAnio=${a};renderCon()">${MF[m-1]} ${a}</span>`;
   }
   chips+=`</div>`;
-  const act=DB.inquilinos.filter(i=>i.estado==="activo");
+  // Filtro propietario
+  chips+=`<div class="cr">
+    <span class="chip${propFilter==='todos'?' on':''}" onclick="propFilter='todos';renderCon()">👥 Todos</span>
+    <span class="chip${propFilter==='IRMA'?' on':''}" onclick="propFilter='IRMA';renderCon()">👩 Irma</span>
+    <span class="chip${propFilter==='ANTONIO'?' on':''}" onclick="propFilter='ANTONIO';renderCon()">👨 Antonio</span>
+    </div>`;
+  let act=DB.inquilinos.filter(i=>i.estado==="activo");
+  if(propFilter!=='todos')act=act.filter(i=>i.propietario===propFilter);
   const grupos={};
   act.forEach(i=>{if(!grupos[i.inmueble])grupos[i.inmueble]=[];grupos[i.inmueble].push(i);});
   Object.values(grupos).forEach(g=>g.sort((a,b)=>(a.dia||0)-(b.dia||0)||a.nombre.localeCompare(b.nombre)));
@@ -651,7 +658,8 @@ function renderListaInq(){
     const open=expandedInm[inm]!==false;
     html+=`<div class="inm-group"><div class="inm-hd" onclick="toggleInm('${inm}')">
       <div class="inm-hd-l"><span class="inm-arrow ${open?'open':''}">▶</span>
-      <div><div class="inm-nom">${inm}</div><div class="inm-meta">${nPagG}/${items.length} pagados · ${fmt(cobG)} de ${fmt(totG)}</div></div></div></div>
+      <div><div class="inm-nom">${inm}${items[0]?.propietario?` <span style="font-size:9px;color:var(--dim);font-weight:400;letter-spacing:1px">${items[0].propietario}</span>`:''}</div><div class="inm-meta">${nPagG}/${items.length} pagados · ${fmt(cobG)} de ${fmt(totG)}</div></div></div>
+      <button class="btn bo bsm" onclick="event.stopPropagation();openInmuebleEdit('${inm.replace(/'/g,"\\'")}')">⚙️</button></div>
       <div class="inm-body ${open?'open':''}">`;
     items.forEach(t=>{
       const paid=isPagado(t.id,curMes,curAnio);const late=isLate(t.id,curMes,curAnio);
@@ -670,6 +678,54 @@ function renderListaInq(){
   document.getElementById("con-content").innerHTML=html;
 }
 function toggleInm(inm){expandedInm[inm]=expandedInm[inm]===false?true:false;renderListaInq();}
+
+function openInmuebleEdit(nombreActual){
+  const inm=DB.inmuebles.find(x=>x.nombre===nombreActual)||{nombre:nombreActual};
+  const tenantsHere=DB.inquilinos.filter(t=>t.inmueble===nombreActual);
+  const propietarios=[...new Set(tenantsHere.map(t=>t.propietario).filter(Boolean))];
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">🏢 Editar inmueble</div>
+    <div class="card" style="padding:10px;margin-bottom:14px;background:var(--s2)">
+      <div style="font-size:11px;color:var(--dim)">Información actual</div>
+      <div style="font-size:13px;margin-top:4px">${tenantsHere.length} inquilinos · ${propietarios.join(', ')||'sin propietario'}</div>
+    </div>
+    <div class="fg"><label class="fl">Nombre del inmueble</label><input class="fi" id="im-nom" value="${nombreActual}"></div>
+    <div class="fg"><label class="fl">Propietario</label>
+      <select class="fi" id="im-prop">
+        <option value="">— Mantener sin cambio —</option>
+        <option value="IRMA"${propietarios[0]==='IRMA'?' selected':''}>👩 Irma</option>
+        <option value="ANTONIO"${propietarios[0]==='ANTONIO'?' selected':''}>👨 Antonio</option>
+      </select>
+      <div style="font-size:10px;color:var(--dim);margin-top:4px">Cambiar aplica a TODOS los inquilinos de este inmueble</div></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Total de deptos</label><input class="fi" type="number" min="0" id="im-total" value="${inm.total_depas||tenantsHere.length}"></div>
+      <div class="fg"><label class="fl">Ocupados</label><input class="fi" type="number" value="${tenantsHere.length}" disabled style="color:var(--dim)"></div>
+    </div>
+    <div class="fg"><label class="fl">Notas</label><textarea class="fi" id="im-notas" rows="2">${inm.notas||''}</textarea></div>
+    <button class="btn bg bfu" onclick="saveInmueble('${nombreActual.replace(/'/g,"\\'")}')">Guardar cambios</button></div>`);
+}
+
+function saveInmueble(nombreActual){
+  const nuevoNom=document.getElementById('im-nom').value.trim();
+  const prop=document.getElementById('im-prop').value;
+  const total=Number(document.getElementById('im-total').value)||0;
+  const notas=document.getElementById('im-notas').value.trim();
+  if(!nuevoNom){snack('Nombre requerido');return;}
+  // Actualizar registro inmueble
+  let inm=DB.inmuebles.find(x=>x.nombre===nombreActual);
+  if(inm){inm.nombre=nuevoNom;inm.total_depas=total;inm.notas=notas;if(prop)inm.propietario=prop;}
+  else{DB.inmuebles.push({id:uid(),nombre:nuevoNom,total_depas:total,notas,propietario:prop||''});}
+  // Si cambió el nombre, actualizar todos los inquilinos
+  if(nuevoNom!==nombreActual){
+    DB.inquilinos.forEach(t=>{if(t.inmueble===nombreActual)t.inmueble=nuevoNom;});
+  }
+  // Si seleccionó propietario, actualizar inquilinos
+  if(prop){
+    DB.inquilinos.forEach(t=>{if(t.inmueble===nuevoNom)t.propietario=prop;});
+  }
+  saveDB('inmuebles');saveDB('inquilinos');
+  closeM();snack('Inmueble actualizado ✓');renderCon();
+}
 
 const DESTINOS_COMUNES=['EFE','BANORTE','HSBC','SANT','BBVA','MIFIEL','SCOTIA','AZTECA','CAJA'];
 
@@ -842,7 +898,7 @@ function renderGastos(){
     <span class="chip${rangeMode==='mes'?' on':''}" onclick="rangeMode='mes';renderCon()">Este mes</span>
     <span class="chip${rangeMode==='custom'?' on':''}" onclick="openCustomRange()">📅 Personalizado</span>
     </div>`;
-  const gs=DB.gastos.filter(g=>{const d=new Date(g.fecha);return d>=r.ini&&d<=r.fin;}).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  const gs=DB.gastos.filter(g=>{if(!g.fecha)return false;const d=new Date(g.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;}).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
   const total=gs.reduce((s,g)=>s+Number(g.monto),0);
   // Por categoría
   const porCat={};
@@ -910,9 +966,13 @@ function saveGasto(id){
   const desc=document.getElementById('g-desc').value.trim();
   const fecha=document.getElementById('g-fecha').value;
   if(!monto||!desc||!fecha){snack('Completa los campos obligatorios');return;}
+  // Parse local date properly (avoid timezone parsing issues)
+  const [yy,mm,dd]=fecha.split('-').map(Number);
+  const now=new Date();
+  const fechaLocal=new Date(yy,mm-1,dd,now.getHours(),now.getMinutes(),now.getSeconds());
   const obj={
     categoria:cat,monto:Number(monto),descripcion:desc,
-    fecha:fecha+'T'+new Date().toTimeString().slice(0,8),
+    fecha:fechaLocal.toISOString(),
     inmueble:document.getElementById('g-inm').value.trim(),
     notas:document.getElementById('g-notas').value.trim()
   };
@@ -935,6 +995,8 @@ function openCustomRange(){
 }
 
 // ── RESUMEN (Ingresos - Gastos) ────────────
+const CATS_OTROS_ING={multa:{n:'Multa',i:'⚠️'},servicio:{n:'Servicio',i:'💡'},deposito:{n:'Depósito garantía',i:'🔐'},comision:{n:'Comisión',i:'💼'},otro:{n:'Otro',i:'💵'}};
+
 function renderResumen(){
   const r=getRange(rangeMode);
   let chips=`<div class="cr">
@@ -944,10 +1006,12 @@ function renderResumen(){
     <span class="chip${rangeMode==='sem_pas'?' on':''}" onclick="rangeMode='sem_pas';renderCon()">Sem. pasada</span>
     <span class="chip${rangeMode==='mes'?' on':''}" onclick="rangeMode='mes';renderCon()">Este mes</span>
     <span class="chip${rangeMode==='custom'?' on':''}" onclick="openCustomRange()">📅 Personalizado</span></div>`;
-  // Pagos en rango
-  const pagos=DB.pagos.filter(p=>{if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);return d>=r.ini&&d<=r.fin;});
-  const ingresos=pagos.reduce((s,p)=>s+Number(p.monto),0);
-  const gs=DB.gastos.filter(g=>{const d=new Date(g.fecha);return d>=r.ini&&d<=r.fin;});
+  const pagos=DB.pagos.filter(p=>{if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
+  const otros=DB.otros_ingresos.filter(o=>{if(!o.fecha)return false;const d=new Date(o.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
+  const ingRenta=pagos.reduce((s,p)=>s+Number(p.monto),0);
+  const ingOtros=otros.reduce((s,o)=>s+Number(o.monto),0);
+  const ingresos=ingRenta+ingOtros;
+  const gs=DB.gastos.filter(g=>{if(!g.fecha)return false;const d=new Date(g.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
   const gastos=gs.reduce((s,g)=>s+Number(g.monto),0);
   const neto=ingresos-gastos;
   const porCat={};
@@ -961,17 +1025,20 @@ function renderResumen(){
       <div style="background:#5CB87A11;padding:10px;border-radius:10px;border:1px solid #5CB87A33">
         <div style="font-size:10px;color:var(--g)">+ INGRESOS</div>
         <div style="font-family:'Playfair Display',serif;font-size:18px;color:var(--g);font-weight:700">${fmt(ingresos)}</div>
-        <div style="font-size:10px;color:var(--dim)">${pagos.length} pagos</div></div>
+        <div style="font-size:10px;color:var(--dim)">${pagos.length} rentas${otros.length?` + ${otros.length} otros`:''}</div></div>
       <div style="background:#E05C5C11;padding:10px;border-radius:10px;border:1px solid #E05C5C33">
         <div style="font-size:10px;color:var(--r)">− GASTOS</div>
         <div style="font-family:'Playfair Display',serif;font-size:18px;color:var(--r);font-weight:700">${fmt(gastos)}</div>
         <div style="font-size:10px;color:var(--dim)">${gs.length} gastos</div></div>
     </div></div>`;
+  html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+    <button class="btn bs" onclick="openAddOtroIngreso()">💰 + Otro ingreso</button>
+    <button class="btn bd" onclick="openAddGasto()">💸 + Gasto</button>
+  </div>`;
   html+=`<div style="display:flex;gap:8px;margin-bottom:14px">
     <button class="btn bo" style="flex:1" onclick="exportExcelMovs()">📊 Excel</button>
-    <button class="btn bo" style="flex:1" onclick="genPDFConciliacion()">📄 PDF</button>
+    <button class="btn bo" style="flex:1" onclick="openPDFConfig()">📄 PDF</button>
   </div>`;
-  // Desglose gastos
   if(Object.keys(porCat).length>0){
     html+=`<div class="st-sm">Gastos por categoría</div>`;
     Object.entries(porCat).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
@@ -985,18 +1052,97 @@ function renderResumen(){
         <div style="height:4px;background:#252525;border-radius:2px;margin-top:7px;overflow:hidden"><div style="height:100%;background:${c.c};width:${pct}%"></div></div></div>`;
     });
   }
-  // Ingresos del periodo
+  if(otros.length>0){
+    html+=`<div class="st-sm">Otros ingresos (${otros.length})</div><div class="card" style="padding:0 14px">`;
+    otros.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).forEach(o=>{
+      const c=CATS_OTROS_ING[o.categoria]||CATS_OTROS_ING.otro;
+      const f=new Date(o.fecha).toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
+      html+=`<div class="pr" onclick="openAddOtroIngreso('${o.id}')" style="cursor:pointer"><div class="pi"><div class="pn">${c.i} ${o.concepto}</div><div class="pd">${c.n}${o.inmueble?' · '+o.inmueble:''} · ${f}${o.destino?' · '+o.destino:''}</div></div><div class="pa">${fmt(o.monto)}</div></div>`;
+    });
+    html+=`</div>`;
+  }
   if(pagos.length>0){
-    html+=`<div class="st-sm">Ingresos detallados</div><div class="card" style="padding:0 14px">`;
+    html+=`<div class="st-sm">Ingresos de renta</div><div class="card" style="padding:0 14px">`;
     pagos.sort((a,b)=>new Date(b.fecha_pago)-new Date(a.fecha_pago)).slice(0,15).forEach(p=>{
       const t=DB.inquilinos.find(i=>i.id===p.iid);
       const f=new Date(p.fecha_pago).toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
-      html+=`<div class="pr"><div class="pi"><div class="pn">${t?.nombre||'?'}</div><div class="pd">${t?.inmueble||''} · ${f}</div></div><div class="pa">${fmt(p.monto)}</div></div>`;
+      html+=`<div class="pr"><div class="pi"><div class="pn">${t?.nombre||'?'}</div><div class="pd">${t?.inmueble||''} · ${f}${p.destino?' · '+p.destino:''}</div></div><div class="pa">${fmt(p.monto)}</div></div>`;
     });
     if(pagos.length>15)html+=`<div style="text-align:center;padding:10px;color:var(--dim);font-size:11px">+ ${pagos.length-15} más...</div>`;
     html+=`</div>`;
   }
   document.getElementById("con-content").innerHTML=html;
+}
+
+// ── OTROS INGRESOS ─────────────────
+function openAddOtroIngreso(id){
+  const o=id?DB.otros_ingresos.find(x=>x.id===id):{};
+  const props=[...new Set(DB.inquilinos.map(i=>i.inmueble))].sort();
+  const inqs=DB.inquilinos.filter(x=>x.estado==='activo');
+  const now=new Date();
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">💰 ${id?'Editar':'Nuevo'} Otro Ingreso</div>
+    <div class="fg"><label class="fl">Categoría *</label>
+      <select class="fi" id="oi-cat">
+        ${Object.entries(CATS_OTROS_ING).map(([k,v])=>`<option value="${k}"${o?.categoria===k?' selected':''}>${v.i} ${v.n}</option>`).join('')}
+      </select></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Monto $ *</label><input class="fi" type="number" step="0.01" id="oi-monto" value="${o?.monto||''}"></div>
+      <div class="fg"><label class="fl">Fecha *</label><input class="fi" type="date" id="oi-fecha" value="${o?.fecha?o.fecha.slice(0,10):todayISO()}"></div>
+    </div>
+    <div class="fg"><label class="fl">Concepto *</label><input class="fi" id="oi-concepto" value="${o?.concepto||''}" placeholder="Ej: Multa por daño, Servicio agua extra..."></div>
+    <div class="fg"><label class="fl">Inmueble (opcional)</label>
+      <input class="fi" id="oi-inm" list="props-list-oi" value="${o?.inmueble||''}">
+      <datalist id="props-list-oi">${props.map(p=>`<option value="${p}">`).join('')}</datalist></div>
+    <div class="fg"><label class="fl">Inquilino relacionado (opcional)</label>
+      <select class="fi" id="oi-inq"><option value="">— Ninguno —</option>
+      ${inqs.map(x=>`<option value="${x.id}"${o?.inqId===x.id?' selected':''}>${x.nombre} — ${x.inmueble}</option>`).join('')}</select></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Destino</label>
+        <input class="fi" id="oi-dest" value="${o?.destino||'EFE'}" list="dest-list-oi">
+        <datalist id="dest-list-oi">${DESTINOS_COMUNES.map(d=>`<option value="${d}">`).join('')}</datalist></div>
+      <div class="fg"><label class="fl">Método</label>
+        <select class="fi" id="oi-met">
+          <option value="efectivo"${(o?.metodo==='efectivo'||!o?.metodo)?' selected':''}>Efectivo</option>
+          <option value="transferencia"${o?.metodo==='transferencia'?' selected':''}>Transferencia</option>
+          <option value="deposito"${o?.metodo==='deposito'?' selected':''}>Depósito</option>
+          <option value="cheque"${o?.metodo==='cheque'?' selected':''}>Cheque</option>
+        </select></div>
+    </div>
+    <div class="fg"><label class="fl">Notas</label><input class="fi" id="oi-notas" value="${o?.notas||''}"></div>
+    <div style="display:flex;gap:8px">
+      ${id?`<button class="btn bd" onclick="delOtroIngreso('${id}')">🗑️ Eliminar</button>`:''}
+      <button class="btn bg bfu" onclick="saveOtroIngreso('${id||''}')">Guardar</button>
+    </div></div>`);
+}
+
+function saveOtroIngreso(id){
+  const cat=document.getElementById('oi-cat').value;
+  const monto=document.getElementById('oi-monto').value;
+  const concepto=document.getElementById('oi-concepto').value.trim();
+  const fecha=document.getElementById('oi-fecha').value;
+  if(!monto||!concepto||!fecha){snack('Completa los campos obligatorios');return;}
+  const [yy,mm,dd]=fecha.split('-').map(Number);
+  const now=new Date();
+  const fechaLocal=new Date(yy,mm-1,dd,now.getHours(),now.getMinutes(),now.getSeconds());
+  const obj={
+    categoria:cat,monto:Number(monto),concepto,
+    fecha:fechaLocal.toISOString(),
+    inmueble:document.getElementById('oi-inm').value.trim(),
+    inqId:document.getElementById('oi-inq').value,
+    destino:document.getElementById('oi-dest').value.trim(),
+    metodo:document.getElementById('oi-met').value,
+    notas:document.getElementById('oi-notas').value.trim()
+  };
+  if(id){Object.assign(DB.otros_ingresos.find(x=>x.id===id),obj);}
+  else{DB.otros_ingresos.push({id:uid(),...obj,creado:nowISO()});}
+  saveDB('otros_ingresos');closeM();snack(id?'Ingreso actualizado ✓':'Ingreso registrado ✓');renderCon();
+}
+
+function delOtroIngreso(id){
+  if(!confirm('¿Eliminar este ingreso?'))return;
+  DB.otros_ingresos=DB.otros_ingresos.filter(o=>o.id!==id);
+  saveDB('otros_ingresos');closeM();snack('Eliminado');renderCon();
 }
 
 // ─── EXPORTS ─────────────────────────────────────
@@ -1165,8 +1311,14 @@ function openEditTenant(id){
     <div class="fg"><label class="fl">Interior</label><input class="fi" id="m-int" value="${t?.interior||''}"></div></div>
     <div class="grid2"><div class="fg"><label class="fl">Renta $ *</label><input class="fi" type="number" id="m-rent" value="${t?.renta||''}"></div>
     <div class="fg"><label class="fl">Día pago *</label><input class="fi" type="number" min="1" max="31" id="m-dia" value="${t?.dia||5}"></div></div>
-    <div class="grid2"><div class="fg"><label class="fl">Destino</label><input class="fi" id="m-dest" value="${t?.destino||''}"></div>
-    <div class="fg"><label class="fl">Servicios</label><input class="fi" id="m-srv" value="${t?.servicios||''}"></div></div>
+    <div class="grid2"><div class="fg"><label class="fl">Propietario</label>
+      <select class="fi" id="m-prop">
+        <option value=""${!t?.propietario?' selected':''}>—</option>
+        <option value="IRMA"${t?.propietario==='IRMA'?' selected':''}>👩 Irma</option>
+        <option value="ANTONIO"${t?.propietario==='ANTONIO'?' selected':''}>👨 Antonio</option>
+      </select></div>
+    <div class="fg"><label class="fl">Destino</label><input class="fi" id="m-dest" value="${t?.destino||''}"></div></div>
+    <div class="fg"><label class="fl">Servicios</label><input class="fi" id="m-srv" value="${t?.servicios||''}"></div>
     <div class="fg"><label class="fl">Estatus</label><input class="fi" id="m-est" value="${t?.estatus||'Al corriente'}"></div>
     <div class="grid2"><div class="fg"><label class="fl">Renovación</label><input class="fi" type="date" id="m-ren" value="${t?.renovacion||''}"></div>
     <div class="fg"><label class="fl">Contrato vigente</label><select class="fi" id="m-cv">
@@ -1174,9 +1326,12 @@ function openEditTenant(id){
       <option value="No"${t?.contrato_vigente==='No'||!t?.contrato_vigente?' selected':''}>No</option></select></div></div>
     <div class="fg"><label class="fl">Comentarios</label><input class="fi" id="m-com" value="${t?.comentarios||''}"></div>
     <div class="fg"><label class="fl">Estado</label><select class="fi" id="m-estado">
-      <option value="activo"${(!t?.estado||t?.estado==='activo')?' selected':''}>Activo</option>
-      <option value="inactivo"${t?.estado==='inactivo'?' selected':''}>Inactivo</option></select></div>
-    <button class="btn bg bfu" onclick="saveTenant('${id||''}')">Guardar</button></div>`);
+      <option value="activo"${(!t?.estado||t?.estado==='activo')?' selected':''}>Activo (cobrando)</option>
+      <option value="inactivo"${t?.estado==='inactivo'?' selected':''}>Inactivo (ya no renta)</option></select></div>
+    <div style="display:flex;gap:8px">
+      ${id?`<button class="btn bd" onclick="delTenant('${id}')">🗑️ Eliminar</button>`:''}
+      <button class="btn bg bfu" onclick="saveTenant('${id||''}')">Guardar</button>
+    </div></div>`);
 }
 
 function saveTenant(id){
@@ -1188,13 +1343,30 @@ function saveTenant(id){
     dia:Number(document.getElementById('m-dia').value)||5,destino:document.getElementById('m-dest').value.trim(),
     servicios:document.getElementById('m-srv').value.trim(),estatus:document.getElementById('m-est').value.trim(),
     renovacion:document.getElementById('m-ren').value,contrato_vigente:document.getElementById('m-cv').value,
-    comentarios:document.getElementById('m-com').value.trim(),estado:document.getElementById('m-estado').value};
+    comentarios:document.getElementById('m-com').value.trim(),estado:document.getElementById('m-estado').value,
+    propietario:document.getElementById('m-prop').value};
   if(id){Object.assign(DB.inquilinos.find(x=>x.id===id),obj);}else{DB.inquilinos.push({id:uid(),...obj});}
   saveDB('inquilinos');closeM();snack(id?'Actualizado ✓':'Agregado ✓');
   if(curView==='inq')renderInqList();
   else if(curView==='det'&&detTenant?.id===id){detTenant=DB.inquilinos.find(x=>x.id===id);renderDet();}
   else if(curView==='con')renderCon();
   updNotif();
+}
+
+function delTenant(id){
+  const t=DB.inquilinos.find(x=>x.id===id);if(!t)return;
+  const numPagos=DB.pagos.filter(p=>p.iid===id).length;
+  let msg=`¿Eliminar a ${t.nombre} (${t.inmueble})?`;
+  if(numPagos>0)msg+=`\n\n⚠️ Tiene ${numPagos} pagos registrados que también se eliminarán.`;
+  msg+='\n\nEsta acción NO se puede deshacer. Considera marcarlo como Inactivo en su lugar.';
+  if(!confirm(msg))return;
+  DB.inquilinos=DB.inquilinos.filter(x=>x.id!==id);
+  DB.pagos=DB.pagos.filter(p=>p.iid!==id);
+  saveDB('inquilinos');saveDB('pagos');
+  closeM();snack('Inquilino eliminado');
+  if(curView==='det'){detTenant=null;go('inq');}
+  else if(curView==='inq')renderInqList();
+  else if(curView==='con')renderCon();
 }
 
 // ─── Servicios ──────────────────────────────────────
@@ -1235,6 +1407,8 @@ function delSvc(id){if(!confirm('¿Eliminar?'))return;DB.servicios=DB.servicios.
 
 // ─── REPORTES (vista principal) ──────────────────
 function renderRep(){
+  const incActivos=DB.incidentes.filter(i=>!i.resuelto);
+  const incResueltos=DB.incidentes.filter(i=>i.resuelto);
   document.getElementById('v-rep').innerHTML=`
     <div class="st">📥 Exportar Excel</div>
     <div class="ro" onclick="exportExcelMes()"><div style="font-size:26px">📊</div><div><div class="rtit">Lista Inquilinaria</div><div class="rdesc">${MF[curMes-1]} ${curAnio} · formato original</div></div></div>
@@ -1256,11 +1430,17 @@ function renderRep(){
       <div class="tn"><div class="tnm">${t.n}${o.inmueble?' · '+o.inmueble:''}</div><div class="ts">${new Date(o.fecha).toLocaleDateString('es-MX')} · ${fmt(o.costo)}${o.fotos?.length?' · '+o.fotos.length+' fotos':''}</div></div>
       <span style="font-size:18px">📄</span></div>`;}).join('')}
     
-    ${DB.incidentes.length>0?`<div class="st-sm">Incidentes (${DB.incidentes.length})</div>`:''}
-    ${DB.incidentes.slice(-5).reverse().map(i=>{const n=NIVELES_INC.find(x=>x.k===i.nivel)||NIVELES_INC[0];
+    ${incActivos.length>0?`<div class="st-sm">⚠️ Incidentes activos (${incActivos.length})</div>`:''}
+    ${incActivos.slice(-8).reverse().map(i=>{const n=NIVELES_INC.find(x=>x.k===i.nivel)||NIVELES_INC[0];
       return`<div class="ti" onclick="openIncidenteDetail('${i.id}')"><div class="av" style="background:${n.c};font-size:11px">${i.numero?.split('-')[1]||'?'}</div>
       <div class="tn"><div class="tnm">${i.numero||'?'}</div><div class="ts">${i.lugar||'—'} · ${new Date(i.fecha).toLocaleDateString('es-MX')} · ${n.n}</div></div>
       <span style="font-size:18px">📄</span></div>`;}).join('')}
+    
+    ${incResueltos.length>0?`<div class="st-sm" style="opacity:.7">✓ Historial de resueltos (${incResueltos.length}) · <span style="color:var(--gold);cursor:pointer" onclick="toggleResueltosView()">${expandedInm['__resueltos']?'ocultar':'mostrar'}</span></div>`:''}
+    ${incResueltos.length>0&&expandedInm['__resueltos']?incResueltos.sort((a,b)=>new Date(b.fecha_resolucion||0)-new Date(a.fecha_resolucion||0)).map(i=>{const n=NIVELES_INC.find(x=>x.k===i.nivel)||NIVELES_INC[0];
+      return`<div class="ti" onclick="openIncidenteDetail('${i.id}')" style="opacity:.7"><div class="av" style="background:#5CB87A;font-size:11px">✓</div>
+      <div class="tn"><div class="tnm">${i.numero||'?'} <span style="font-size:10px;color:var(--g)">resuelto</span></div><div class="ts">${i.lugar||'—'} · ${new Date(i.fecha).toLocaleDateString('es-MX')} → ${i.fecha_resolucion?new Date(i.fecha_resolucion).toLocaleDateString('es-MX'):'?'} · ${n.n}</div></div>
+      <span style="font-size:14px;color:var(--dim)">›</span></div>`;}).join(''):''}
 
     <div class="st" style="margin-top:14px">👤 Historial individual</div>
     <input class="fi" id="rep-search" placeholder="🔍 Buscar inquilino..." oninput="renderRepInqList()" style="margin-bottom:10px">
@@ -1270,9 +1450,63 @@ function renderRep(){
     <div class="ro" onclick="signOutCloud()" id="logout-row" style="${currentUser?'':'display:none'}"><div style="font-size:24px">👤</div><div><div class="rtit">${currentUser?.email||'No conectado'}</div><div class="rdesc">Cerrar sesión / cambiar cuenta</div></div></div>
     <div class="st" style="margin-top:14px">⚙️ Datos</div>
     <div class="ro" onclick="exportFullBackup()"><div style="font-size:24px">💾</div><div><div class="rtit">Respaldo completo</div><div class="rdesc">JSON con todos los datos</div></div></div>
-    <div class="ro" onclick="importJSON()"><div style="font-size:24px">📤</div><div><div class="rtit">Importar respaldo</div><div class="rdesc">Cargar JSON previo</div></div></div>
+    <div class="ro" onclick="smartImportInquilinos()"><div style="font-size:24px">🔄</div><div><div class="rtit">Actualizar inquilinos desde JSON</div><div class="rdesc">Mantiene pagos · empareja por nombre+inmueble</div></div></div>
+    <div class="ro" onclick="importJSON()"><div style="font-size:24px">📤</div><div><div class="rtit">Importar respaldo (reemplazar)</div><div class="rdesc">Cargar JSON previo · sobrescribe TODO</div></div></div>
     <div class="ro" onclick="resetAll()"><div style="font-size:24px">🗑️</div><div><div class="rtit">Borrar todo</div><div class="rdesc" style="color:var(--r)">Datos locales (irreversible)</div></div></div>`;
   renderRepInqList();
+}
+
+function toggleResueltosView(){
+  expandedInm['__resueltos']=!expandedInm['__resueltos'];
+  renderRep();
+}
+
+function smartImportInquilinos(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.json';
+  inp.onchange=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const d=JSON.parse(ev.target.result);
+        const newList=d.inquilinos||[];
+        if(!newList.length){snack('JSON sin inquilinos');return;}
+        // Match by nombre+inmueble (case insensitive)
+        const existingByKey=new Map();
+        DB.inquilinos.forEach(t=>{
+          const k=(t.nombre+'|'+t.inmueble).toLowerCase().trim();
+          existingByKey.set(k,t);
+        });
+        const updated=[];const matchedIds=new Set();
+        let nuevos=0,actualizados=0;
+        newList.forEach(n=>{
+          const k=(n.nombre+'|'+n.inmueble).toLowerCase().trim();
+          const ex=existingByKey.get(k);
+          if(ex){
+            updated.push({...ex,...n,id:ex.id});  // preserve ID, merge data
+            matchedIds.add(ex.id);
+            actualizados++;
+          }else{
+            updated.push({...n,id:uid()});
+            nuevos++;
+          }
+        });
+        // Keep old tenants not in new list, mark as inactive
+        let inactivados=0;
+        DB.inquilinos.forEach(t=>{
+          if(!matchedIds.has(t.id)){
+            updated.push({...t,estado:'inactivo'});
+            inactivados++;
+          }
+        });
+        if(!confirm(`Resultado de actualización:\n\n• ${actualizados} inquilinos actualizados\n• ${nuevos} inquilinos nuevos\n• ${inactivados} inquilinos marcados como inactivos\n\nLos pagos existentes se conservan. ¿Aplicar?`))return;
+        DB.inquilinos=updated;
+        saveDB('inquilinos');
+        snack('✓ Inquilinos actualizados');
+        renderRep();
+      }catch(err){snack('Error: '+err.message)}
+    };r.readAsText(f);
+  };inp.click();
 }
 
 function renderRepInqList(){
@@ -1367,8 +1601,11 @@ function saveObra(id){
   const inm=document.getElementById('o-inm').value.trim();
   const desc=document.getElementById('o-desc').value.trim();
   if(!fecha||!costo||!inm||!desc){snack('Completa los campos obligatorios');return;}
+  const [yy,mm,dd]=fecha.split('-').map(Number);
+  const now=new Date();
+  const fechaLocal=new Date(yy,mm-1,dd,now.getHours(),now.getMinutes(),now.getSeconds());
   const obj={
-    tipo,fecha:fecha+'T'+new Date().toTimeString().slice(0,8),
+    tipo,fecha:fechaLocal.toISOString(),
     costo:Number(costo),inmueble:inm,descripcion:desc,
     trabajador:document.getElementById('o-trab').value.trim(),
     fotos:[...pendingPhotos],
@@ -1505,22 +1742,50 @@ function openIncidenteDetail(id){
     <div class="card gd" style="text-align:center;padding:14px;margin-bottom:14px">
       <div style="font-size:10px;color:var(--dim);text-transform:uppercase">Folio</div>
       <div class="num-inc" style="font-size:22px">${i.numero}</div>
-      <div style="margin-top:6px"><span class="bge" style="background:${n.c}33;color:${n.c};border-color:${n.c}66">${n.n}</span></div>
+      <div style="margin-top:6px">
+        <span class="bge" style="background:${n.c}33;color:${n.c};border-color:${n.c}66">${n.n}</span>
+        ${i.resuelto?`<span class="bge ok" style="margin-left:6px">✓ Resuelto</span>`:''}
+      </div>
     </div>
     <div class="card" style="padding:6px 14px;margin-bottom:14px">
       <div class="ir"><span class="ik">Fecha</span><span class="iv">${new Date(i.fecha).toLocaleString('es-MX',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span></div>
       <div class="ir"><span class="ik">Lugar</span><span class="iv">${i.lugar}</span></div>
       ${inq?`<div class="ir"><span class="ik">Inquilino</span><span class="iv">${inq.nombre}</span></div>`:''}
+      ${i.resuelto?`<div class="ir"><span class="ik">Resuelto</span><span class="iv tag-g">${new Date(i.fecha_resolucion).toLocaleDateString('es-MX')}</span></div>`:''}
     </div>
     <div class="st-sm">Descripción</div>
     <div class="card"><div style="font-size:13px;line-height:1.5">${i.descripcion}</div></div>
     ${i.accion?`<div class="st-sm">Acción tomada</div><div class="card"><div style="font-size:13px;line-height:1.5">${i.accion}</div></div>`:''}
+    ${i.notas_resolucion?`<div class="st-sm">Notas de resolución</div><div class="card"><div style="font-size:13px;line-height:1.5">${i.notas_resolucion}</div></div>`:''}
     ${photosHtml?`<div class="st-sm">Evidencia (${i.fotos.length})</div>${photosHtml}`:''}
-    <div style="display:flex;gap:8px;margin-top:14px">
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      ${!i.resuelto?`<button class="btn bs bfu" onclick="marcarResuelto('${i.id}')">✓ Marcar como resuelto</button>`:`<button class="btn bo bfu" onclick="reabrirIncidente('${i.id}')">↩️ Reabrir</button>`}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
       <button class="btn bg" style="flex:1" onclick="genPDFIncidente('${i.id}')">📄 PDF</button>
       <button class="btn bo" onclick="closeM();openIncidenteForm('${i.id}')">✏️</button>
       <button class="btn bd" onclick="delIncidente('${i.id}')">🗑️</button>
     </div></div>`);
+}
+
+function marcarResuelto(id){
+  const i=DB.incidentes.find(x=>x.id===id);if(!i)return;
+  const notas=prompt('Notas de cómo se resolvió (opcional):','');
+  if(notas===null)return;
+  i.resuelto=true;
+  i.fecha_resolucion=nowISO();
+  if(notas)i.notas_resolucion=notas;
+  saveDB('incidentes');
+  closeM();snack(`✓ Incidente ${i.numero} resuelto`);renderRep();
+}
+
+function reabrirIncidente(id){
+  const i=DB.incidentes.find(x=>x.id===id);if(!i)return;
+  if(!confirm('¿Reabrir este incidente?'))return;
+  i.resuelto=false;
+  delete i.fecha_resolucion;
+  saveDB('incidentes');
+  closeM();snack('Incidente reabierto');renderRep();
 }
 
 function delIncidente(id){
@@ -1531,7 +1796,7 @@ function delIncidente(id){
 
 // ─── BACKUP / RESET ──────────────────────────────
 function exportFullBackup(){
-  const data={inquilinos:DB.inquilinos,pagos:DB.pagos,servicios:DB.servicios,gastos:DB.gastos,obras:DB.obras,incidentes:DB.incidentes,fecha:nowISO()};
+  const data={inquilinos:DB.inquilinos,pagos:DB.pagos,servicios:DB.servicios,gastos:DB.gastos,obras:DB.obras,incidentes:DB.incidentes,otros_ingresos:DB.otros_ingresos,inmuebles:DB.inmuebles,fecha:nowISO()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`respaldo_rentas_${todayISO()}.json`;a.click();
@@ -1564,34 +1829,39 @@ function resetAll(){
 function pdfBase(titulo,subtitulo){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:'mm',format:'a4'});
-  doc.setFillColor(212,168,67);doc.rect(0,0,210,3,'F');
-  doc.setFillColor(18,18,18);doc.rect(0,3,210,35,'F');
-  doc.setTextColor(212,168,67);doc.setFontSize(18);doc.setFont('helvetica','bold');
-  doc.text('GESTIÓN DE RENTAS',14,20);
-  doc.setTextColor(100,100,100);doc.setFontSize(9);doc.setFont('helvetica','normal');
-  doc.text(titulo,14,28);
-  if(subtitulo)doc.text(subtitulo,14,32);
-  doc.text('Generado: '+new Date().toLocaleString('es-MX'),14,subtitulo?36:34);
-  doc.setFillColor(212,168,67);doc.rect(0,38,210,1,'F');
+  // Línea azul superior
+  doc.setFillColor(91,155,213);doc.rect(0,0,210,1.5,'F');
+  // Título en gris oscuro sobre blanco (imprime perfecto)
+  doc.setTextColor(45,55,72);doc.setFontSize(20);doc.setFont('helvetica','bold');
+  doc.text('GESTIÓN DE RENTAS',14,15);
+  // Subtítulo en gris medio
+  doc.setTextColor(110,118,135);doc.setFontSize(10);doc.setFont('helvetica','normal');
+  doc.text(titulo,14,22);
+  if(subtitulo){doc.setFontSize(9);doc.text(subtitulo,14,27);}
+  doc.setFontSize(8);doc.setTextColor(150,150,150);
+  doc.text('Generado: '+new Date().toLocaleString('es-MX'),14,subtitulo?32:28);
+  // Línea separadora gris claro
+  doc.setDrawColor(220,225,235);doc.setLineWidth(0.3);
+  doc.line(14,subtitulo?35:32,196,subtitulo?35:32);
   return doc;
 }
 
 function genPDFTenant(id){
   const t=DB.inquilinos.find(i=>i.id===id);if(!t)return;
   const doc=pdfBase('HISTORIAL DE INQUILINO');
-  doc.setTextColor(212,168,67);doc.setFontSize(13);doc.setFont('helvetica','bold');
+  doc.setTextColor(45,55,72);doc.setFontSize(13);doc.setFont('helvetica','bold');
   doc.text(t.nombre.toUpperCase(),14,50);
   doc.setTextColor(80,80,80);doc.setFontSize(9);doc.setFont('helvetica','normal');
   doc.text(t.inmueble+(t.interior?' · INT '+t.interior:''),14,57);
-  doc.setDrawColor(212,168,67);doc.line(14,60,196,60);
+  doc.setDrawColor(200,210,225);doc.setLineWidth(0.3);doc.line(14,60,196,60);
   let y=68;
   const info=[['Renta mensual',fmt(t.renta)],['Día de pago','Día '+t.dia],['Destino',t.destino||'—'],['Servicios',t.servicios||'—'],['Estatus',t.estatus||'—'],['Renovación',t.renovacion||'—'],['Contrato vigente',t.contrato_vigente||'—'],['Comentarios',t.comentarios||'—']];
   info.forEach(([k,v])=>{doc.setFillColor(248,248,248);doc.rect(14,y-4,182,7,'F');
     doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);doc.text(k+':',16,y);
     doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);doc.text(String(v).slice(0,80),65,y);y+=7;});
   y+=4;
-  doc.setFillColor(212,168,67);doc.rect(14,y,182,8,'F');
-  doc.setTextColor(15,15,15);doc.setFont('helvetica','bold');doc.setFontSize(9);
+  doc.setFillColor(91,155,213);doc.rect(14,y,182,8,'F');
+  doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(9);
   doc.text('MES / AÑO',16,y+5.5);doc.text('FECHA Y HORA DE PAGO',75,y+5.5);doc.text('MONTO',183,y+5.5,'right');
   y+=10;
   const pagos=DB.pagos.filter(p=>p.iid===id&&p.pagado).sort((a,b)=>b.anio-a.anio||b.mes-a.mes);
@@ -1607,7 +1877,7 @@ function genPDFTenant(id){
     doc.text(fmt(p.monto),183,y,'right');total+=Number(p.monto);y+=8;
   });
   if(!pagos.length){doc.setTextColor(130,130,130);doc.setFont('helvetica','italic');doc.text('Sin pagos registrados',16,y);}
-  y+=6;doc.setDrawColor(212,168,67);doc.line(14,y,196,y);y+=7;
+  y+=6;doc.setDrawColor(200,210,225);doc.setLineWidth(0.3);doc.line(14,y,196,y);y+=7;
   doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(40,40,40);
   doc.text('TOTAL COBRADO:',14,y);doc.setTextColor(40,130,70);doc.text(fmt(total),183,y,'right');
   doc.save('historial_'+t.nombre.replace(/\s+/g,'_')+'.pdf');snack('PDF descargado');
@@ -1663,7 +1933,7 @@ function genPDFConciliacion(incIng=true,incGas=true,incDet=true){
   let y=50;
   // Resumen visual
   doc.setFillColor(248,248,248);doc.rect(14,y-4,182,46,'F');
-  doc.setDrawColor(212,168,67);doc.rect(14,y-4,182,46);
+  doc.setDrawColor(200,210,225);doc.setLineWidth(0.3);doc.rect(14,y-4,182,46);
   doc.setTextColor(neto>=0?40:200,neto>=0?130:60,neto>=0?70:60);doc.setFont('helvetica','bold');doc.setFontSize(22);
   doc.text(fmt(neto),105,y+8,'center');
   doc.setTextColor(100,100,100);doc.setFontSize(9);doc.setFont('helvetica','normal');doc.text('NETO DEL PERIODO',105,y+15,'center');
@@ -1674,7 +1944,7 @@ function genPDFConciliacion(incIng=true,incGas=true,incDet=true){
   y+=54;
   // Gastos por categoría
   if(incGas&&gs.length>0){
-    doc.setTextColor(212,168,67);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('GASTOS POR CATEGORÍA',14,y);y+=6;
+    doc.setTextColor(91,155,213);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('GASTOS POR CATEGORÍA',14,y);y+=6;
     const porCat={};gs.forEach(g=>{porCat[g.categoria]=(porCat[g.categoria]||0)+Number(g.monto)});
     Object.entries(porCat).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
       const c=CATS_GASTO[k]||CATS_GASTO.otros;
@@ -1732,7 +2002,7 @@ function genPDFResumen(){
   const totalEsp=act.reduce((s,i)=>s+Number(i.renta),0);
   let y=50;
   doc.setFillColor(248,248,248);doc.rect(14,y-4,182,40,'F');
-  doc.setDrawColor(212,168,67);doc.rect(14,y-4,182,40);
+  doc.setDrawColor(200,210,225);doc.setLineWidth(0.3);doc.rect(14,y-4,182,40);
   doc.setTextColor(40,130,70);doc.setFont('helvetica','bold');doc.setFontSize(20);
   doc.text(fmt(cobMes),105,y+5,'center');
   doc.setTextColor(100,100,100);doc.setFontSize(9);doc.setFont('helvetica','normal');doc.text('COBRADO',105,y+12,'center');
@@ -1740,8 +2010,8 @@ function genPDFResumen(){
   doc.text(fmt(totalEsp-cobMes),105,y+24,'center');
   doc.setTextColor(100,100,100);doc.setFontSize(9);doc.setFont('helvetica','normal');doc.text('PENDIENTE',105,y+31,'center');
   y+=50;
-  doc.setFillColor(212,168,67);doc.rect(14,y,182,8,'F');
-  doc.setTextColor(15,15,15);doc.setFont('helvetica','bold');doc.setFontSize(9);
+  doc.setFillColor(91,155,213);doc.rect(14,y,182,8,'F');
+  doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(9);
   doc.text('INQUILINO',16,y+5.5);doc.text('INMUEBLE',75,y+5.5);doc.text('RENTA',148,y+5.5,'right');doc.text('STATUS',183,y+5.5,'right');
   y+=10;
   act.forEach((t,i)=>{
@@ -1794,7 +2064,7 @@ function genPDFObra(id){
   doc.setFillColor(248,248,248);doc.rect(14,y-4,182,7,'F');
   doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);doc.text('Trabajador:',16,y);doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);doc.text(o.trabajador||'—',65,y);y+=10;
   // Descripción
-  doc.setTextColor(212,168,67);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('DESCRIPCIÓN',14,y);y+=5;
+  doc.setTextColor(91,155,213);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('DESCRIPCIÓN',14,y);y+=5;
   doc.setTextColor(40,40,40);doc.setFontSize(10);doc.setFont('helvetica','normal');
   const lines=doc.splitTextToSize(o.descripcion,180);
   lines.forEach(l=>{doc.text(l,14,y);y+=5;});
@@ -1802,7 +2072,7 @@ function genPDFObra(id){
   // Fotos
   if(o.fotos?.length){
     if(y>200){doc.addPage();y=20;}
-    doc.setTextColor(212,168,67);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('EVIDENCIA FOTOGRÁFICA',14,y);y+=6;
+    doc.setTextColor(91,155,213);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('EVIDENCIA FOTOGRÁFICA',14,y);y+=6;
     const cols=2;const photoW=85;const photoH=64;const gap=4;
     o.fotos.forEach((p,i)=>{
       const col=i%cols;const row=Math.floor(i/cols);
@@ -1823,10 +2093,11 @@ function genPDFIncidente(id){
   const doc=pdfBase('REPORTE DE INCIDENTE','Folio: '+i.numero);
   let y=50;
   // Folio destacado
-  doc.setFillColor(20,20,20);doc.rect(14,y-4,182,18,'F');
-  doc.setTextColor(212,168,67);doc.setFont('helvetica','bold');doc.setFontSize(16);
+  doc.setFillColor(240,245,252);doc.rect(14,y-4,182,18,'F');
+  doc.setDrawColor(91,155,213);doc.rect(14,y-4,182,18);
+  doc.setTextColor(45,55,72);doc.setFont('helvetica','bold');doc.setFontSize(16);
   doc.text(i.numero,105,y+6,'center');
-  doc.setTextColor(180,180,180);doc.setFontSize(9);doc.setFont('helvetica','normal');
+  doc.setTextColor(110,118,135);doc.setFontSize(9);doc.setFont('helvetica','normal');
   doc.text('NÚMERO DE FOLIO',105,y+11,'center');
   y+=22;
   // Nivel
@@ -1842,17 +2113,17 @@ function genPDFIncidente(id){
     doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);doc.text(String(v),50,y);y+=7;
   });
   y+=4;
-  doc.setTextColor(212,168,67);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('DESCRIPCIÓN',14,y);y+=5;
+  doc.setTextColor(91,155,213);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('DESCRIPCIÓN',14,y);y+=5;
   doc.setTextColor(40,40,40);doc.setFontSize(10);doc.setFont('helvetica','normal');
   const lines=doc.splitTextToSize(i.descripcion,180);lines.forEach(l=>{doc.text(l,14,y);y+=5;});y+=4;
   if(i.accion){
-    doc.setTextColor(212,168,67);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('ACCIÓN TOMADA',14,y);y+=5;
+    doc.setTextColor(91,155,213);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('ACCIÓN TOMADA',14,y);y+=5;
     doc.setTextColor(40,40,40);doc.setFontSize(10);doc.setFont('helvetica','normal');
     const al=doc.splitTextToSize(i.accion,180);al.forEach(l=>{doc.text(l,14,y);y+=5;});y+=4;
   }
   if(i.fotos?.length){
     if(y>200){doc.addPage();y=20;}
-    doc.setTextColor(212,168,67);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('EVIDENCIA',14,y);y+=6;
+    doc.setTextColor(91,155,213);doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('EVIDENCIA',14,y);y+=6;
     i.fotos.forEach((p,idx)=>{
       const x=14+(idx%2)*89;
       if(idx>0&&idx%2===0)y+=68;
