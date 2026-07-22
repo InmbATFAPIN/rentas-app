@@ -324,14 +324,41 @@ let currentUser = null;
 let cloudSyncEnabled = false;
 let cloudUnsubs = [];
 let saveTimers = {};
+let cloudStateNow = 'offline';
+let cloudMsgNow = 'Sin sincronización';
 const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones'];
-const PHOTO_COLLS = ['obras','incidentes']; // photos stay in localStorage
+const PHOTO_COLLS = ['obras','incidentes','inspecciones']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
+  cloudStateNow = state;
+  cloudMsgNow = msg;
   const el = document.getElementById('cloud-status');
+  if (el) {
+    el.className = 'cloud-status ' + state;
+    el.textContent = msg;
+  }
+  updateDashCloudCard();
+}
+
+function updateDashCloudCard() {
+  const el = document.getElementById('dash-cloud-card');
   if (!el) return;
-  el.className = 'cloud-status ' + state;
-  el.textContent = msg;
+  const cfg = {
+    syncing: {icon:'⟳', bg:'#E0B840', label:'Guardando en la nube...'},
+    synced:  {icon:'✓', bg:'#5CB87A', label:'Todo sincronizado'},
+    error:   {icon:'⚠', bg:'#E05C5C', label:'Sin conexión — datos solo en este dispositivo'},
+    offline: {icon:'☾', bg:'#777',    label:'Sin sesión iniciada'}
+  };
+  const c = cfg[cloudStateNow] || cfg.offline;
+  el.style.borderColor = c.bg;
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:12px">
+      <div style="width:40px;height:40px;border-radius:50%;background:${c.bg}22;border:2px solid ${c.bg};display:flex;align-items:center;justify-content:center;font-size:20px;color:${c.bg};font-weight:700">${c.icon}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:${c.bg}">${c.label}</div>
+        <div style="font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cloudMsgNow}</div>
+      </div>
+      <div style="font-size:22px;opacity:.7">☁️</div>
+    </div>`;
 }
 
 function stripPhotos(coll, item) {
@@ -633,6 +660,7 @@ function renderDash(){
   const gMes=DB.gastos.filter(g=>{const d=new Date(g.fecha);return d.getMonth()+1===HM&&d.getFullYear()===HA}).reduce((s,g)=>s+Number(g.monto),0);
   const neto=cobMes-gMes;
   document.getElementById("v-dash").innerHTML=`
+    <div id="dash-cloud-card" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="snack('☁️ '+cloudMsgNow)"></div>
     <div class="summary-card">
       <div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">${MF[HM-1]} ${HA}</div>
       <div style="font-family:'Playfair Display',serif;font-size:30px;color:var(--gold);margin-top:4px">${fmt(cobMes)}</div>
@@ -655,6 +683,7 @@ function renderDash(){
     ${venc.length>5?`<button class="btn bo bfu bsm" onclick="go('con')">Ver todas en Conciliación →</button>`:''}
     ${act.length===0?`<div class="es"><div class="ei">🏠</div><div class="et">Sin inquilinos</div></div>`:''}
   `;
+  updateDashCloudCard();
 }
 
 // ─── CONCILIACIÓN ──────────────────────────────────────
@@ -1306,12 +1335,63 @@ function renderInq(){
 function renderInqList(){
   const q=(document.getElementById("search-inq")?.value||"").toLowerCase();
   const todos=DB.inquilinos.filter(i=>!q||i.nombre.toLowerCase().includes(q)||i.inmueble.toLowerCase().includes(q));
-  const act=todos.filter(i=>i.estado==="activo"),inact=todos.filter(i=>i.estado!=="activo");
+  const act=todos.filter(i=>i.estado==="activo");
+  const inact=todos.filter(i=>i.estado!=="activo");
   let html="";
-  if(act.length)html+=`<div class="st">Activos (${act.length})</div>`+act.map(tileH).join("");
-  if(inact.length)html+=`<div class="st" style="margin-top:14px">Inactivos (${inact.length})</div>`+inact.map(tileH).join("");
+  if(act.length){
+    // Agrupar por inmueble
+    const grupos={};
+    act.forEach(i=>{if(!grupos[i.inmueble])grupos[i.inmueble]=[];grupos[i.inmueble].push(i);});
+    Object.values(grupos).forEach(g=>g.sort((a,b)=>(a.dia||0)-(b.dia||0)||a.nombre.localeCompare(b.nombre)));
+    html+=`<div class="st">Activos (${act.length}) · ${Object.keys(grupos).length} inmuebles</div>`;
+    // Si hay búsqueda activa, expandir todos por default
+    const searchOn=!!q;
+    Object.keys(grupos).sort().forEach(inm=>{
+      const items=grupos[inm];
+      const totRenta=items.reduce((s,i)=>s+Number(i.renta),0);
+      const propietario=items[0]?.propietario||'';
+      const key='inq_'+inm;
+      const open=searchOn||expandedInm[key]!==false;
+      html+=`<div class="inm-group">
+        <div class="inm-hd" onclick="toggleInqInm('${inm.replace(/'/g,"\\'")}')">
+          <div class="inm-hd-l"><span class="inm-arrow ${open?'open':''}">▶</span>
+          <div><div class="inm-nom">${inm}${propietario?` <span style="font-size:9px;color:var(--dim);font-weight:400;letter-spacing:1px">${propietario}</span>`:''}</div>
+          <div class="inm-meta">${items.length} inquilinos · ${fmt(totRenta)}/mes</div></div></div>
+        </div>
+        <div class="inm-body ${open?'open':''}">
+          ${items.map(tileInqGrouped).join('')}
+        </div></div>`;
+    });
+  }
+  if(inact.length){
+    html+=`<div class="st" style="margin-top:14px">Inactivos (${inact.length})</div>`+inact.map(tileH).join("");
+  }
+  if(!act.length&&!inact.length)html+=`<div class="es"><div class="ei">🔍</div><div class="et">Sin resultados</div></div>`;
   document.getElementById("inq-list").innerHTML=html;
 }
+
+function toggleInqInm(inm){
+  const k='inq_'+inm;
+  expandedInm[k]=expandedInm[k]===false?true:false;
+  renderInqList();
+}
+
+function tileInqGrouped(t){
+  const lt=isLate(t.id,HM,HA);
+  const pd=isPagado(t.id,HM,HA);
+  return`<div class="row-inq" onclick="openDet('${t.id}')" style="cursor:pointer">
+    <div class="inq-dia">${t.dia||'—'}</div>
+    <div class="inq-info">
+      <div class="inq-nom">${t.nombre}${t.interior?` <span style="color:var(--dim);font-weight:400">· Int ${t.interior}</span>`:''}</div>
+      <div class="inq-sub">${t.servicios||t.estatus||''}</div>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <div style="font-size:12px;font-weight:600;color:var(--gold)">${fmt(t.renta)}</div>
+      <div style="margin-top:3px">${pd?'<span class="bge ok">✓</span>':lt?'<span class="bge v">⚠</span>':'<span class="bge ad">·</span>'}</div>
+    </div>
+  </div>`;
+}
+
 function tileH(t){
   const lt=t.estado==="activo"?isLate(t.id,HM,HA):false;
   const pd=t.estado==="activo"?isPagado(t.id,HM,HA):false;
@@ -1499,18 +1579,47 @@ function renderRep(){
     <div class="st" style="margin-top:14px">🏠 Inspección de departamento</div>
     <div class="ro" onclick="genPDFInspeccionVacia()"><div style="font-size:26px">📥</div><div><div class="rtit">Descargar formato en blanco</div><div class="rdesc">PDF para imprimir y llenar a mano</div></div></div>
     <div class="ro" onclick="openInspeccionForm()"><div style="font-size:26px">✏️</div><div><div class="rtit">Nueva inspección interactiva</div><div class="rdesc">Llenar aquí · calificación automática</div></div></div>
-    ${DB.inspecciones.length>0?`<div class="st-sm">Inspecciones registradas (${DB.inspecciones.length})</div>`:''}
-    ${DB.inspecciones.slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0)).slice(0,5).map(ins=>{
-      const calColor=ins.porcentaje>=80?'#5CB87A':ins.porcentaje>=60?'#E0B840':ins.porcentaje>=40?'#E58A2C':'#E05C5C';
-      return`<div class="ti" onclick="viewInspeccion('${ins.id}')"><div class="av" style="background:${calColor};font-size:11px;font-weight:700">${(ins.porcentaje||0).toFixed(0)}%</div>
-      <div class="tn"><div class="tnm">${ins.inmueble}</div><div class="ts">${new Date(ins.fecha).toLocaleDateString('es-MX')} · ${(ins.score||0).toFixed(1)}/${ins.score_max||100} pts</div></div>
-      <span style="font-size:18px">📄</span></div>`;}).join('')}
+    ${(()=>{
+      const insps=DB.inspecciones.slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+      if(insps.length===0)return'';
+      const showAll=expandedInm['__insp_hist'];
+      const recent=insps.slice(0,3);
+      const older=insps.slice(3);
+      let h=`<div class="st-sm">Inspecciones recientes (${recent.length}${older.length?' de '+insps.length:''})</div>`;
+      h+=recent.map(ins=>{const calColor=ins.porcentaje>=80?'#5CB87A':ins.porcentaje>=60?'#E0B840':ins.porcentaje>=40?'#E58A2C':'#E05C5C';
+        return`<div class="ti" onclick="viewInspeccion('${ins.id}')"><div class="av" style="background:${calColor};font-size:11px;font-weight:700">${(ins.porcentaje||0).toFixed(0)}%</div>
+        <div class="tn"><div class="tnm">${ins.inmueble}</div><div class="ts">${new Date(ins.fecha).toLocaleDateString('es-MX')} · ${(ins.score||0).toFixed(1)}/${ins.score_max||100}${ins.fotos?.length?' · '+ins.fotos.length+' fotos':''}</div></div>
+        <span style="font-size:18px">📄</span></div>`;}).join('');
+      if(older.length){
+        h+=`<div class="st-sm" style="opacity:.7;margin-top:6px">Historial (${older.length}) · <span style="color:var(--gold);cursor:pointer" onclick="toggleHistory('__insp_hist')">${showAll?'ocultar':'ver todo'}</span></div>`;
+        if(showAll)h+=older.map(ins=>{const calColor=ins.porcentaje>=80?'#5CB87A':ins.porcentaje>=60?'#E0B840':ins.porcentaje>=40?'#E58A2C':'#E05C5C';
+          return`<div class="ti" onclick="viewInspeccion('${ins.id}')" style="opacity:.85"><div class="av" style="background:${calColor};font-size:11px;font-weight:700">${(ins.porcentaje||0).toFixed(0)}%</div>
+          <div class="tn"><div class="tnm">${ins.inmueble}</div><div class="ts">${new Date(ins.fecha).toLocaleDateString('es-MX')} · ${(ins.score||0).toFixed(1)}/${ins.score_max||100}</div></div>
+          <span style="font-size:14px;color:var(--dim)">›</span></div>`;}).join('');
+      }
+      return h;
+    })()}
     
-    ${DB.obras.length>0?`<div class="st-sm">Obras registradas (${DB.obras.length})</div>`:''}
-    ${DB.obras.slice(-5).reverse().map(o=>{const t=TIPOS_OBRA[o.tipo]||TIPOS_OBRA.otros;
-      return`<div class="ti" onclick="openObraDetail('${o.id}')"><div class="av" style="background:var(--gdim);font-size:18px">${t.i}</div>
-      <div class="tn"><div class="tnm">${t.n}${o.inmueble?' · '+o.inmueble:''}</div><div class="ts">${new Date(o.fecha).toLocaleDateString('es-MX')} · ${fmt(o.costo)}${o.fotos?.length?' · '+o.fotos.length+' fotos':''}</div></div>
-      <span style="font-size:18px">📄</span></div>`;}).join('')}
+    ${(()=>{
+      const obras=DB.obras.slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+      if(obras.length===0)return'';
+      const showAll=expandedInm['__obras_hist'];
+      const recent=obras.slice(0,3);
+      const older=obras.slice(3);
+      let h=`<div class="st-sm">Obras recientes (${recent.length}${older.length?' de '+obras.length:''})</div>`;
+      h+=recent.map(o=>{const t=TIPOS_OBRA[o.tipo]||TIPOS_OBRA.otros;
+        return`<div class="ti" onclick="openObraDetail('${o.id}')"><div class="av" style="background:var(--gdim);font-size:18px">${t.i}</div>
+        <div class="tn"><div class="tnm">${t.n}${o.inmueble?' · '+o.inmueble:''}</div><div class="ts">${new Date(o.fecha).toLocaleDateString('es-MX')} · ${fmt(o.costo)}${o.fotos?.length?' · '+o.fotos.length+' fotos':''}</div></div>
+        <span style="font-size:18px">📄</span></div>`;}).join('');
+      if(older.length){
+        h+=`<div class="st-sm" style="opacity:.7;margin-top:6px">Historial (${older.length}) · <span style="color:var(--gold);cursor:pointer" onclick="toggleHistory('__obras_hist')">${showAll?'ocultar':'ver todo'}</span></div>`;
+        if(showAll)h+=older.map(o=>{const t=TIPOS_OBRA[o.tipo]||TIPOS_OBRA.otros;
+          return`<div class="ti" onclick="openObraDetail('${o.id}')" style="opacity:.85"><div class="av" style="background:#444;font-size:18px">${t.i}</div>
+          <div class="tn"><div class="tnm">${t.n}${o.inmueble?' · '+o.inmueble:''}</div><div class="ts">${new Date(o.fecha).toLocaleDateString('es-MX')} · ${fmt(o.costo)}</div></div>
+          <span style="font-size:14px;color:var(--dim)">›</span></div>`;}).join('');
+      }
+      return h;
+    })()}
     
     ${incActivos.length>0?`<div class="st-sm">⚠️ Incidentes activos (${incActivos.length})</div>`:''}
     ${incActivos.slice(-8).reverse().map(i=>{const n=NIVELES_INC.find(x=>x.k===i.nivel)||NIVELES_INC[0];
@@ -1540,6 +1649,11 @@ function renderRep(){
 
 function toggleResueltosView(){
   expandedInm['__resueltos']=!expandedInm['__resueltos'];
+  renderRep();
+}
+
+function toggleHistory(key){
+  expandedInm[key]=!expandedInm[key];
   renderRep();
 }
 
@@ -1648,6 +1762,7 @@ async function handlePhotos(e,max){
   // Find which grid is open
   if(document.getElementById('o-photos-grid'))renderPendingPhotos('o-photos-grid');
   if(document.getElementById('i-photos-grid'))renderPendingPhotos('i-photos-grid');
+  if(document.getElementById('ins-photos-grid'))renderPendingPhotos('ins-photos-grid');
 }
 
 function renderPendingPhotos(gridId){
@@ -1759,8 +1874,9 @@ function openIncidenteForm(id){
   pendingPhotos=i.fotos?[...i.fotos]:[];
   const numero=id?i.numero:nextIncidentNum();
   const props=[...new Set(DB.inquilinos.map(x=>x.inmueble))].sort();
-  const inqs=DB.inquilinos.filter(x=>x.estado==='activo');
   const now=new Date();
+  const initialLugar=i?.lugar||'';
+  const initialInqId=i?.inqId||'';
   modal(`<div class="ms"><div class="mh"></div>
     <div class="mt2">🚨 ${id?'Editar':'Nuevo'} Reporte de Incidente</div>
     <div class="card gd" style="margin-bottom:14px;text-align:center;padding:10px">
@@ -1771,11 +1887,11 @@ function openIncidenteForm(id){
       <div class="fg"><label class="fl">Hora *</label><input class="fi" type="time" id="i-hora" value="${i?.hora||now.toTimeString().slice(0,5)}"></div>
     </div>
     <div class="fg"><label class="fl">Lugar / Inmueble *</label>
-      <input class="fi" id="i-lugar" list="props-inc" value="${i?.lugar||''}" placeholder="Ej: XOCO 4A">
+      <input class="fi" id="i-lugar" list="props-inc" value="${initialLugar}" placeholder="Ej: XOCO 4A" oninput="rebuildIncidenteInqOptions()">
       <datalist id="props-inc">${props.map(p=>`<option value="${p}">`).join('')}</datalist></div>
     <div class="fg"><label class="fl">Inquilino relacionado</label>
-      <select class="fi" id="i-inq"><option value="">— Ninguno —</option>
-      ${inqs.map(x=>`<option value="${x.id}"${i?.inqId===x.id?' selected':''}>${x.nombre} — ${x.inmueble}${x.interior?' '+x.interior:''}</option>`).join('')}</select></div>
+      <select class="fi" id="i-inq">${buildIncidenteInqOptions(initialLugar,initialInqId)}</select>
+      <div style="font-size:10px;color:var(--dim);margin-top:4px">Se filtra automáticamente por inmueble</div></div>
     <div class="fg"><label class="fl">Nivel de importancia *</label>
       <select class="fi" id="i-nivel">
         ${NIVELES_INC.map(n=>`<option value="${n.k}"${(i?.nivel||2)===n.k?' selected':''}>${n.k===1?'🟢':n.k===2?'🟡':n.k===3?'🟠':'🔴'} ${n.n}</option>`).join('')}
@@ -1795,15 +1911,47 @@ function openIncidenteForm(id){
   renderPendingPhotos('i-photos-grid');
 }
 
+function buildIncidenteInqOptions(lugar,selectedId){
+  const lugarLower=(lugar||'').toLowerCase().trim();
+  let inqs=DB.inquilinos.filter(x=>x.estado==='activo');
+  if(lugarLower){
+    inqs=inqs.filter(x=>{
+      const inm=(x.inmueble||'').toLowerCase();
+      return lugarLower.includes(inm)||inm.includes(lugarLower);
+    });
+  }
+  // Include selected even if filter would exclude
+  if(selectedId&&selectedId!=='_vacio_'&&!inqs.find(x=>x.id===selectedId)){
+    const cur=DB.inquilinos.find(x=>x.id===selectedId);
+    if(cur)inqs.push(cur);
+  }
+  let html=`<option value=""${!selectedId?' selected':''}>— Ninguno —</option>`;
+  html+=`<option value="_vacio_"${selectedId==='_vacio_'?' selected':''}>🏠 Departamento vacío / sin inquilino</option>`;
+  inqs.forEach(x=>{
+    html+=`<option value="${x.id}"${selectedId===x.id?' selected':''}>${x.nombre}${x.interior?' · Int '+x.interior:''} — ${x.inmueble}</option>`;
+  });
+  return html;
+}
+
+function rebuildIncidenteInqOptions(){
+  const sel=document.getElementById('i-inq');
+  if(!sel)return;
+  const currentVal=sel.value;
+  const lugar=document.getElementById('i-lugar').value;
+  sel.innerHTML=buildIncidenteInqOptions(lugar,currentVal);
+}
+
 function saveIncidente(id,numero){
   const fecha=document.getElementById('i-fecha').value;
   const hora=document.getElementById('i-hora').value;
   const lugar=document.getElementById('i-lugar').value.trim();
   const desc=document.getElementById('i-desc').value.trim();
   if(!fecha||!hora||!lugar||!desc){snack('Completa los campos obligatorios');return;}
+  const inqIdVal=document.getElementById('i-inq').value;
   const obj={
     numero,fecha:fecha+'T'+hora+':00',hora,lugar,
-    inqId:document.getElementById('i-inq').value,
+    inqId:inqIdVal==='_vacio_'?'':inqIdVal,
+    depto_vacio:inqIdVal==='_vacio_',
     nivel:Number(document.getElementById('i-nivel').value),
     descripcion:desc,accion:document.getElementById('i-accion').value.trim(),
     fotos:[...pendingPhotos]
@@ -1832,7 +1980,7 @@ function openIncidenteDetail(id){
     <div class="card" style="padding:6px 14px;margin-bottom:14px">
       <div class="ir"><span class="ik">Fecha</span><span class="iv">${new Date(i.fecha).toLocaleString('es-MX',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span></div>
       <div class="ir"><span class="ik">Lugar</span><span class="iv">${i.lugar}</span></div>
-      ${inq?`<div class="ir"><span class="ik">Inquilino</span><span class="iv">${inq.nombre}</span></div>`:''}
+      ${i.depto_vacio?`<div class="ir"><span class="ik">Inquilino</span><span class="iv" style="color:var(--dim)">🏠 Departamento vacío</span></div>`:inq?`<div class="ir"><span class="ik">Inquilino</span><span class="iv">${inq.nombre}</span></div>`:''}
       ${i.resuelto?`<div class="ir"><span class="ik">Resuelto</span><span class="iv tag-g">${new Date(i.fecha_resolucion).toLocaleDateString('es-MX')}</span></div>`:''}
     </div>
     <div class="st-sm">Descripción</div>
@@ -1879,7 +2027,8 @@ function delIncidente(id){
 // ─── INSPECCIÓN DE DEPARTAMENTO ──────────────────
 function openInspeccionForm(id){
   if(id){curInspeccion=JSON.parse(JSON.stringify(DB.inspecciones.find(x=>x.id===id)||{}));}
-  else{curInspeccion={items:{},fecha:todayISO(),inmueble:'',inquilino_id:'',inspector:'',notas:''};}
+  else{curInspeccion={items:{},fecha:todayISO(),inmueble:'',inquilino_id:'',inspector:'',notas:'',fotos:[]};}
+  pendingPhotos=curInspeccion.fotos?[...curInspeccion.fotos]:[];
   renderInspeccionForm();
 }
 
@@ -1954,12 +2103,18 @@ function renderInspeccionForm(){
     });
     html+=`</div>`;
   });
-  html+=`<div class="fg"><label class="fl">Notas generales</label><textarea class="fi" id="ins-notas" rows="2">${ins.notas||''}</textarea></div>
+  html+=`<div class="fg"><label class="fl">Fotos (hasta 8)</label>
+      <input type="file" accept="image/*" multiple id="ins-fotos-inp" style="display:none" onchange="handlePhotos(event,8)">
+      <div class="photo-grid" id="ins-photos-grid"></div>
+      <button class="btn bo bsm" onclick="document.getElementById('ins-fotos-inp').click()">📷 Agregar fotos</button>
+      <div style="font-size:10px;color:var(--dim);margin-top:6px">Evidencia visual del estado del departamento</div></div>
+    <div class="fg"><label class="fl">Notas generales</label><textarea class="fi" id="ins-notas" rows="2">${ins.notas||''}</textarea></div>
     <div style="display:flex;gap:8px">
       ${ins.id?`<button class="btn bd" onclick="delInspeccion('${ins.id}')">🗑️ Eliminar</button>`:''}
       <button class="btn bg bfu" onclick="saveInspeccion()">Guardar inspección</button>
     </div></div>`;
   modal(html);
+  renderPendingPhotos('ins-photos-grid');
 }
 
 function setInspEstado(k,estado){
@@ -1993,6 +2148,7 @@ function saveInspeccion(){
   ins.inspector=document.getElementById('ins-inspector').value.trim();
   ins.inquilino_id=document.getElementById('ins-inq').value;
   ins.notas=document.getElementById('ins-notas').value.trim();
+  ins.fotos=[...pendingPhotos];
   if(!ins.inmueble||!ins.fecha){snack('Falta inmueble o fecha');return;}
   // Calcular calificación final
   let scoreObt=0,scoreMax=0;
@@ -2047,6 +2203,11 @@ function viewInspeccion(id){
     html+=`</div>`;
   });
   if(ins.notas)html+=`<div class="st-sm">Notas generales</div><div class="card"><div style="font-size:13px;line-height:1.5">${ins.notas}</div></div>`;
+  if(ins.fotos?.length){
+    html+=`<div class="st-sm">Fotos (${ins.fotos.length})</div><div class="photo-grid">`;
+    ins.fotos.forEach(p=>{html+=`<div class="photo-thumb" style="background-image:url('${p}')" onclick="viewFullImg('${p}','direct')"></div>`;});
+    html+=`</div>`;
+  }
   html+=`<div style="display:flex;gap:8px;margin-top:14px">
     <button class="btn bg" style="flex:1" onclick="genPDFInspeccion('${ins.id}')">📄 PDF</button>
     <button class="btn bo" onclick="closeM();openInspeccionForm('${ins.id}')">✏️ Editar</button>
@@ -2123,6 +2284,18 @@ function genPDFInspeccion(id){
     doc.setTextColor(45,55,72);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text('NOTAS GENERALES',14,y);y+=5;
     doc.setTextColor(40,40,40);doc.setFontSize(10);doc.setFont('helvetica','normal');
     doc.splitTextToSize(ins.notas,180).forEach(l=>{doc.text(l,14,y);y+=5;});
+  }
+  if(ins.fotos?.length){
+    if(y>200){doc.addPage();y=20;}
+    doc.setTextColor(45,55,72);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text('EVIDENCIA FOTOGRÁFICA',14,y);y+=6;
+    const cols=2,photoW=85,photoH=64,gap=4;
+    ins.fotos.forEach((p,i)=>{
+      const col=i%cols;
+      const x=14+col*(photoW+gap);
+      if(col===0&&y+photoH>275){doc.addPage();y=20;}
+      try{doc.addImage(p,'JPEG',x,y,photoW,photoH);}catch(e){}
+      if(col===cols-1||i===ins.fotos.length-1)y+=photoH+gap;
+    });
   }
   doc.save(`inspeccion_${ins.inmueble.replace(/\s+/g,'_')}_${ins.fecha.slice(0,10)}.pdf`);
   snack('PDF descargado');
