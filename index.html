@@ -1248,36 +1248,82 @@ function delOtroIngreso(id){
 
 // ─── EXPORTS ─────────────────────────────────────
 function exportExcelMes(){
-  const act=DB.inquilinos.filter(i=>i.estado==='activo');
-  if(act.length===0){
-    snack('⚠️ No hay inquilinos activos. ¿Se completó la sincronización?');
-    return;
-  }
-  const rows=[['Pagado','FECHA','LUGAR','NOMBRE','INT','CANTIDAD','DESTINO','SERVICIOS','ESTATUS','RENOVACIÓN','COMENTARIOS','MEDIDOR DE LUZ','CONTRATO VIGENTE','FECHA DE PAGO','MÉTODO']];
-  const grupos={};
-  act.forEach(i=>{if(!grupos[i.inmueble])grupos[i.inmueble]=[];grupos[i.inmueble].push(i);});
-  Object.keys(grupos).sort().forEach(inm=>{
-    grupos[inm].sort((a,b)=>(a.dia||0)-(b.dia||0));
-    grupos[inm].forEach(i=>{
-      const p=getPago(i.id,curMes,curAnio);
-      const dia=i.dia===30?0.3:i.dia;
-      const fp=p?.fecha_pago?new Date(p.fecha_pago).toLocaleString('es-MX'):'';
-      const dest=p?.destino||i.destino||'';
-      rows.push([p?true:false,dia,i.inmueble,i.nombre,i.interior||'',p?.monto||i.renta,dest,i.servicios||'',i.estatus||'Al corriente',i.renovacion||'',i.comentarios||'',i.medidor||'',i.contrato_vigente||'',fp,p?.metodo||'']);
+  try{
+    console.log('[Excel] Iniciando export. curMes=',curMes,'curAnio=',curAnio,'total DB.inquilinos=',DB.inquilinos.length);
+    if(typeof XLSX==='undefined'){snack('⚠️ Librería XLSX no cargada. Refresca la app.');return;}
+    const act=DB.inquilinos.filter(i=>i.estado==='activo');
+    console.log('[Excel] Inquilinos activos:',act.length);
+    if(act.length===0){
+      const estados=[...new Set(DB.inquilinos.map(i=>i.estado||'(sin estado)'))];
+      snack('⚠️ Sin activos. Estados encontrados: '+estados.join(', '));
+      return;
+    }
+    // Función segura para convertir valores
+    const S=v=>v==null?'':String(v);
+    const N=v=>{const n=Number(v);return isNaN(n)?0:n;};
+    const rows=[['Pagado','FECHA','LUGAR','NOMBRE','INT','CANTIDAD','DESTINO','SERVICIOS','ESTATUS','RENOVACIÓN','COMENTARIOS','MEDIDOR DE LUZ','CONTRATO VIGENTE','FECHA DE PAGO','MÉTODO','PROPIETARIO']];
+    const grupos={};
+    act.forEach(i=>{
+      const inm=S(i.inmueble)||'(sin inmueble)';
+      if(!grupos[inm])grupos[inm]=[];
+      grupos[inm].push(i);
     });
-  });
-  rows.push([]);
-  const totalCob=act.filter(i=>isPagado(i.id,curMes,curAnio)).reduce((s,i)=>{const p=getPago(i.id,curMes,curAnio);return s+Number(p?.monto||0);},0);
-  const totalEsp=act.reduce((s,i)=>s+Number(i.renta),0);
-  rows.push(['','','','TOTAL ESPERADO:','',totalEsp]);
-  rows.push(['','','','TOTAL COBRADO:','',totalCob]);
-  rows.push(['','','','PENDIENTE:','',totalEsp-totalCob]);
-  const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{w:8},{w:8},{w:18},{w:30},{w:8},{w:12},{w:10},{w:18},{w:14},{w:14},{w:25},{w:10},{w:14},{w:20},{w:12}];
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,`${MF[curMes-1].toUpperCase()} ${curAnio}`);
-  XLSX.writeFile(wb,`lista_inquilinaria_${MN[curMes-1]}_${curAnio}.xlsx`);
-  snack(`📥 Excel con ${act.length} inquilinos`);
+    console.log('[Excel] Inmuebles agrupados:',Object.keys(grupos));
+    let rowCount=0;
+    Object.keys(grupos).sort().forEach(inm=>{
+      grupos[inm].sort((a,b)=>(N(a.dia))-(N(b.dia)));
+      grupos[inm].forEach(i=>{
+        const p=getPago(i.id,curMes,curAnio);
+        const diaN=N(i.dia);
+        const dia=diaN===30?0.3:diaN;
+        const fp=p?.fecha_pago?new Date(p.fecha_pago).toLocaleString('es-MX'):'';
+        const dest=S(p?.destino||i.destino);
+        rows.push([
+          p?true:false,
+          dia,
+          S(i.inmueble),
+          S(i.nombre),
+          S(i.interior),
+          N(p?.monto||i.renta),
+          dest,
+          S(i.servicios),
+          S(i.estatus)||'Al corriente',
+          S(i.renovacion),
+          S(i.comentarios),
+          S(i.medidor),
+          S(i.contrato_vigente),
+          fp,
+          S(p?.metodo),
+          S(i.propietario)
+        ]);
+        rowCount++;
+      });
+    });
+    console.log('[Excel] Filas de datos generadas:',rowCount);
+    if(rowCount===0){snack('⚠️ 0 filas generadas — bug reportar');return;}
+    rows.push([]);
+    const totalCob=act.filter(i=>isPagado(i.id,curMes,curAnio)).reduce((s,i)=>{const p=getPago(i.id,curMes,curAnio);return s+N(p?.monto);},0);
+    const totalEsp=act.reduce((s,i)=>s+N(i.renta),0);
+    rows.push(['','','','TOTAL ESPERADO:','',totalEsp]);
+    rows.push(['','','','TOTAL COBRADO:','',totalCob]);
+    rows.push(['','','','PENDIENTE:','',totalEsp-totalCob]);
+    console.log('[Excel] Total filas incluyendo totales:',rows.length);
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{w:8},{w:8},{w:18},{w:30},{w:8},{w:12},{w:10},{w:18},{w:14},{w:14},{w:25},{w:10},{w:14},{w:20},{w:12},{w:12}];
+    const wb=XLSX.utils.book_new();
+    // Sheet name: max 31 chars, no special chars
+    let sheetName=(MF[curMes-1]||'MES').toUpperCase()+' '+curAnio;
+    sheetName=sheetName.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31);
+    XLSX.utils.book_append_sheet(wb,ws,sheetName);
+    const filename=`lista_inquilinaria_${MN[curMes-1]||'mes'}_${curAnio}.xlsx`;
+    XLSX.writeFile(wb,filename);
+    console.log('[Excel] Archivo generado:',filename);
+    snack(`📥 Excel: ${rowCount} inquilinos en ${Object.keys(grupos).length} inmuebles`);
+  }catch(err){
+    console.error('[Excel] ERROR:',err);
+    snack('⚠️ Error: '+err.message);
+    alert('Error al generar Excel:\n\n'+err.message+'\n\nAbre la consola del navegador (F12) para más detalles.');
+  }
 }
 
 function exportExcelMovs(){
