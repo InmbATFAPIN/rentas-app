@@ -169,6 +169,21 @@ textarea.fi{resize:vertical;min-height:60px}
 .cloud-status.synced{color:#5CB87A}
 .cloud-status.error{color:#E05C5C}
 .cloud-status.offline{color:#777}
+.fab{position:fixed;bottom:78px;right:16px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#D4A843,#B89235);color:#000;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:90;box-shadow:0 6px 16px rgba(0,0,0,.55),0 0 0 3px rgba(212,168,67,.15);transition:transform .15s}
+.fab:hover,.fab:active{transform:scale(1.08)}
+.fab svg{stroke:#000;stroke-width:3.2;stroke-linecap:round}
+.chip-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.cat-chip{padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;background:var(--s2);color:#ccc;border:2px solid #333;flex-shrink:0;transition:all .15s;user-select:none}
+.cat-chip.on{color:#fff}
+.cat-chip:active{transform:scale(.95)}
+.quick-btn{background:var(--s1);border:1px solid #333;color:#eee;border-radius:12px;cursor:pointer;transition:all .15s}
+.quick-btn:active{transform:scale(.96);background:var(--s2)}
+.bit-item{background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:flex-start;gap:10px}
+.bit-item.done{opacity:.55}
+.bit-item.done .bit-titulo{text-decoration:line-through;color:var(--dim)}
+.bit-check{width:22px;height:22px;border-radius:6px;border:2px solid #555;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:transparent;cursor:pointer;transition:all .15s;margin-top:1px}
+.bit-check.done{background:var(--g);border-color:var(--g);color:#000}
+.bit-hora{background:var(--gdim);color:var(--gold);padding:4px 8px;border-radius:6px;font-size:11px;font-weight:700;font-family:monospace;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -215,6 +230,7 @@ textarea.fi{resize:vertical;min-height:60px}
     <div id="v-svc" class="view"></div>
     <div id="v-rep" class="view"></div>
   </main>
+  <button class="fab" id="fab-quick" onclick="openQuickEntry()" aria-label="Registro rápido"><svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M12 5v14M5 12h14"/></svg></button>
   <nav class="nav">
     <button class="ni on" id="n-dash" onclick="go('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Panel<span class="nd" id="nd-dash"></span></button>
     <button class="ni" id="n-con" onclick="go('con')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="6" cy="6" r="2" fill="currentColor"/><circle cx="14" cy="12" r="2" fill="currentColor"/><circle cx="9" cy="18" r="2" fill="currentColor"/></svg>Conciliación</button>
@@ -228,7 +244,7 @@ textarea.fi{resize:vertical;min-height:60px}
 </div>
 <script>
 // ─── State ─────────────────────────────────────────────
-let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[]};
+let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[]};
 let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null,propFilter='todos';
 const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MF=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -326,7 +342,7 @@ let cloudUnsubs = [];
 let saveTimers = {};
 let cloudStateNow = 'offline';
 let cloudMsgNow = 'Sin sincronización';
-const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios'];
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora'];
 const PHOTO_COLLS = ['obras','incidentes','inspecciones']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
@@ -539,7 +555,7 @@ async function cloudSaveNow(k) {
 // ─── Storage ───────────────────────────────────────────
 function loadDB(){
   let firstRun=true;
-  ["inquilinos","pagos","servicios","gastos","obras","incidentes","otros_ingresos","inmuebles","inspecciones","recibos_servicios","pagos_servicios"].forEach(k=>{
+  ["inquilinos","pagos","servicios","gastos","obras","incidentes","otros_ingresos","inmuebles","inspecciones","recibos_servicios","pagos_servicios","bitacora"].forEach(k=>{
     try{const v=localStorage.getItem("rentas_"+k);if(v){DB[k]=JSON.parse(v);if(k==="inquilinos"&&DB[k].length>0)firstRun=false;}}catch(e){}
   });
   // Migration: rename propiedad -> inmueble in servicios
@@ -719,6 +735,28 @@ function renderDash(){
         <div><div style="font-size:9px;color:var(--dim)">NETO</div><div style="color:${neto>=0?'var(--g)':'var(--r)'};font-weight:700">${fmt(neto)}</div></div>
       </div>
     </div>
+    <button class="btn bo bfu" onclick="openDailySummary()" style="margin-bottom:14px">📧 Enviar resumen del día</button>
+    ${(()=>{
+      const b=getBitacoraHoyResumen();
+      const proxProg=b.progActivos[0];
+      const totalPend=b.pendActivos.length+b.progActivos.length;
+      if(totalPend===0&&b.hechos===0)return`<div onclick="openBitacora()" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:12px 14px;margin-bottom:14px;cursor:pointer;text-align:center">
+        <div style="font-size:24px;margin-bottom:4px">📅</div>
+        <div style="font-size:12px;color:var(--dim)">Bitácora de hoy vacía</div>
+        <div style="font-size:10px;color:var(--gold);margin-top:4px">+ Agregar pendientes o programados</div>
+      </div>`;
+      return`<div onclick="openBitacora()" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:12px 14px;margin-bottom:14px;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:700;font-size:13px">📅 Bitácora de hoy</div>
+          <div style="font-size:10px;color:var(--dim)">${b.hechos>0?b.hechos+' ✓ · ':''}${totalPend} pendiente${totalPend===1?'':'s'}</div>
+        </div>
+        ${proxProg?`<div style="background:var(--gdim);border-radius:8px;padding:6px 10px;display:flex;gap:8px;align-items:center">
+          <div style="background:var(--gold);color:#000;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:700;font-family:monospace">${proxProg.hora}</div>
+          <div style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${proxProg.titulo}</div>
+        </div>`:''}
+        ${b.pendActivos.length>0?`<div style="font-size:11px;color:var(--dim);margin-top:6px">☐ ${b.pendActivos.slice(0,2).map(p=>p.titulo.slice(0,40)).join(' · ')}${b.pendActivos.length>2?` +${b.pendActivos.length-2}`:''}</div>`:''}
+      </div>`;
+    })()}
     <div class="sg">
       <div class="sc"><div class="sl">Vencidas</div><div class="sv${venc.length>0?' r':' g'}">${venc.length}</div></div>
       <div class="sc"><div class="sl">Pagadas</div><div class="sv g">${pagds.length}/${act.length}</div></div>
@@ -1221,26 +1259,50 @@ function renderGastos(){
 
 function openAddGasto(id){
   const g=id?DB.gastos.find(x=>x.id===id):{};
-  const props=[...new Set(DB.inquilinos.map(i=>i.inmueble))].sort();
+  const props=[...new Set(DB.inquilinos.map(i=>i.inmueble))].filter(Boolean).sort();
+  // Inmuebles recientes por frecuencia
+  const inmCounts={};
+  DB.gastos.forEach(x=>{if(x.inmueble)inmCounts[x.inmueble]=(inmCounts[x.inmueble]||0)+1;});
+  const recentInmuebles=Object.entries(inmCounts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
+  // Descripciones únicas del historial
+  const descriptions=[...new Set(DB.gastos.map(x=>x.descripcion).filter(Boolean))].slice(0,30);
+  const currentCat=g.categoria||'mantenimiento';
+  const currentInm=g.inmueble||'';
   modal(`<div class="ms"><div class="mh"></div>
-    <div class="mt2">${id?'Editar Gasto':'Nuevo Gasto'}</div>
-    <div class="fg"><label class="fl">Categoría *</label>
-      <select class="fi" id="g-cat">
-        ${Object.entries(CATS_GASTO).map(([k,v])=>`<option value="${k}"${g?.categoria===k?' selected':''}>${v.i} ${v.n}</option>`).join('')}
-      </select></div>
-    <div class="grid2">
-      <div class="fg"><label class="fl">Monto $ *</label><input class="fi" type="number" step="0.01" id="g-monto" value="${g?.monto||''}"></div>
-      <div class="fg"><label class="fl">Fecha *</label><input class="fi" type="date" id="g-fecha" value="${g?.fecha?g.fecha.slice(0,10):todayISO()}"></div>
+    <div class="mt2">💸 ${id?'Editar':'Nuevo'} Gasto</div>
+    <div class="fg">
+      <label class="fl">Monto *</label>
+      <input class="fi" type="number" step="0.01" id="g-monto" value="${g.monto||''}" inputmode="decimal" placeholder="0.00" style="font-size:26px;font-weight:700;text-align:center;font-family:'Playfair Display',serif;color:var(--r);padding:14px">
     </div>
-    <div class="fg"><label class="fl">Descripción *</label><input class="fi" id="g-desc" value="${g?.descripcion||''}" placeholder="Ej: Pintura para fachada Norte 5109"></div>
-    <div class="fg"><label class="fl">Inmueble (opcional)</label>
-      <input class="fi" id="g-inm" list="props-list-g" value="${g?.inmueble||''}" placeholder="Ej: XOCO">
-      <datalist id="props-list-g">${props.map(p=>`<option value="${p}">`).join('')}</datalist></div>
-    <div class="fg"><label class="fl">Notas</label><input class="fi" id="g-notas" value="${g?.notas||''}"></div>
+    <div class="fg">
+      <label class="fl">Categoría</label>
+      <div class="chip-grid" id="cat-chips">
+        ${Object.entries(CATS_GASTO).map(([k,v])=>`<div class="cat-chip${currentCat===k?' on':''}" data-cat="${k}" onclick="selectCat('${k}')" style="${currentCat===k?'border-color:'+v.c+';background:'+v.c+'22':''}">${v.i} ${v.n}</div>`).join('')}
+      </div>
+      <input type="hidden" id="g-cat" value="${currentCat}">
+    </div>
+    <div class="fg">
+      <label class="fl">Inmueble ${currentInm?'':'<span style="color:var(--dim);font-weight:400">(opcional)</span>'}</label>
+      ${recentInmuebles.length>0?`<div class="chip-grid" style="margin-bottom:6px">
+        ${recentInmuebles.map(inm=>`<div class="cat-chip${currentInm===inm?' on':''}" onclick="selectInmChip('${inm.replace(/'/g,"\\'")}')" style="font-size:11px;padding:6px 10px${currentInm===inm?';border-color:var(--gold);background:var(--gdim)':''}">${inm}</div>`).join('')}
+      </div>`:''}
+      <input class="fi" id="g-inm" list="props-list-g" value="${currentInm}" placeholder="Otro o escribir...">
+      <datalist id="props-list-g">${props.map(p=>`<option value="${p}">`).join('')}</datalist>
+    </div>
+    <div class="fg">
+      <label class="fl">Descripción *</label>
+      <input class="fi" id="g-desc" value="${g.descripcion||''}" list="desc-list-g" placeholder="Ej: Pintura vinílica, cemento..." oninput="inferCategoryFromDesc(this.value)">
+      <datalist id="desc-list-g">${descriptions.map(d=>`<option value="${d.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Fecha</label><input class="fi" type="date" id="g-fecha" value="${g.fecha?g.fecha.slice(0,10):todayISO()}"></div>
+      <div class="fg"><label class="fl">Notas</label><input class="fi" id="g-notas" value="${g.notas||''}"></div>
+    </div>
     <div style="display:flex;gap:8px">
-      ${id?`<button class="btn bd" onclick="delGasto('${id}')">🗑️ Eliminar</button>`:''}
+      ${id?`<button class="btn bd" onclick="delGasto('${id}')">🗑️</button>`:''}
       <button class="btn bg bfu" onclick="saveGasto('${id||''}')">Guardar gasto</button>
     </div></div>`);
+  setTimeout(()=>{const el=document.getElementById('g-monto');if(el){el.focus();if(!id)el.select();}},150);
 }
 
 function saveGasto(id){
@@ -1360,43 +1422,77 @@ function renderResumen(){
 // ── OTROS INGRESOS ─────────────────
 function openAddOtroIngreso(id){
   const o=id?DB.otros_ingresos.find(x=>x.id===id):{};
-  const props=[...new Set(DB.inquilinos.map(i=>i.inmueble))].sort();
+  const props=[...new Set(DB.inquilinos.map(i=>i.inmueble))].filter(Boolean).sort();
   const inqs=DB.inquilinos.filter(x=>x.estado==='activo');
-  const now=new Date();
+  const inmCounts={};
+  DB.otros_ingresos.forEach(x=>{if(x.inmueble)inmCounts[x.inmueble]=(inmCounts[x.inmueble]||0)+1;});
+  const recentInmuebles=Object.entries(inmCounts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
+  const concepts=[...new Set(DB.otros_ingresos.map(x=>x.concepto).filter(Boolean))].slice(0,20);
+  const currentCat=o.categoria||'otro';
+  const currentInm=o.inmueble||'';
   modal(`<div class="ms"><div class="mh"></div>
     <div class="mt2">💰 ${id?'Editar':'Nuevo'} Otro Ingreso</div>
-    <div class="fg"><label class="fl">Categoría *</label>
-      <select class="fi" id="oi-cat">
-        ${Object.entries(CATS_OTROS_ING).map(([k,v])=>`<option value="${k}"${o?.categoria===k?' selected':''}>${v.i} ${v.n}</option>`).join('')}
-      </select></div>
-    <div class="grid2">
-      <div class="fg"><label class="fl">Monto $ *</label><input class="fi" type="number" step="0.01" id="oi-monto" value="${o?.monto||''}"></div>
-      <div class="fg"><label class="fl">Fecha *</label><input class="fi" type="date" id="oi-fecha" value="${o?.fecha?o.fecha.slice(0,10):todayISO()}"></div>
+    <div class="fg">
+      <label class="fl">Monto *</label>
+      <input class="fi" type="number" step="0.01" id="oi-monto" value="${o.monto||''}" inputmode="decimal" placeholder="0.00" style="font-size:26px;font-weight:700;text-align:center;font-family:'Playfair Display',serif;color:var(--g);padding:14px">
     </div>
-    <div class="fg"><label class="fl">Concepto *</label><input class="fi" id="oi-concepto" value="${o?.concepto||''}" placeholder="Ej: Multa por daño, Servicio agua extra..."></div>
-    <div class="fg"><label class="fl">Inmueble (opcional)</label>
-      <input class="fi" id="oi-inm" list="props-list-oi" value="${o?.inmueble||''}">
-      <datalist id="props-list-oi">${props.map(p=>`<option value="${p}">`).join('')}</datalist></div>
-    <div class="fg"><label class="fl">Inquilino relacionado (opcional)</label>
-      <select class="fi" id="oi-inq"><option value="">— Ninguno —</option>
-      ${inqs.map(x=>`<option value="${x.id}"${o?.inqId===x.id?' selected':''}>${x.nombre} — ${x.inmueble}</option>`).join('')}</select></div>
+    <div class="fg">
+      <label class="fl">Categoría</label>
+      <div class="chip-grid" id="oi-cat-chips">
+        ${Object.entries(CATS_OTROS_ING).map(([k,v])=>`<div class="cat-chip${currentCat===k?' on':''}" data-cat="${k}" onclick="selectOiCat('${k}')" style="${currentCat===k?'border-color:var(--g);background:#5CB87A22':''}">${v.i} ${v.n}</div>`).join('')}
+      </div>
+      <input type="hidden" id="oi-cat" value="${currentCat}">
+    </div>
+    <div class="fg">
+      <label class="fl">Concepto *</label>
+      <input class="fi" id="oi-concepto" value="${o.concepto||''}" list="conc-list-oi" placeholder="Ej: Multa por daño, Depósito garantía...">
+      <datalist id="conc-list-oi">${concepts.map(d=>`<option value="${d.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+    </div>
+    <div class="fg">
+      <label class="fl">Inmueble ${currentInm?'':'<span style="color:var(--dim);font-weight:400">(opcional)</span>'}</label>
+      ${recentInmuebles.length>0?`<div class="chip-grid" style="margin-bottom:6px">
+        ${recentInmuebles.map(inm=>`<div class="cat-chip${currentInm===inm?' on':''}" onclick="selectInmChipOi('${inm.replace(/'/g,"\\'")}')" style="font-size:11px;padding:6px 10px${currentInm===inm?';border-color:var(--gold);background:var(--gdim)':''}">${inm}</div>`).join('')}
+      </div>`:''}
+      <input class="fi" id="oi-inm" list="props-list-oi" value="${currentInm}" placeholder="Otro o escribir...">
+      <datalist id="props-list-oi">${props.map(p=>`<option value="${p}">`).join('')}</datalist>
+    </div>
     <div class="grid2">
+      <div class="fg"><label class="fl">Fecha</label><input class="fi" type="date" id="oi-fecha" value="${o.fecha?o.fecha.slice(0,10):todayISO()}"></div>
       <div class="fg"><label class="fl">Destino</label>
-        <input class="fi" id="oi-dest" value="${o?.destino||'EFE'}" list="dest-list-oi">
+        <input class="fi" id="oi-dest" value="${o.destino||'EFE'}" list="dest-list-oi">
         <datalist id="dest-list-oi">${DESTINOS_COMUNES.map(d=>`<option value="${d}">`).join('')}</datalist></div>
+    </div>
+    <div class="grid2">
       <div class="fg"><label class="fl">Método</label>
         <select class="fi" id="oi-met">
-          <option value="efectivo"${(o?.metodo==='efectivo'||!o?.metodo)?' selected':''}>Efectivo</option>
-          <option value="transferencia"${o?.metodo==='transferencia'?' selected':''}>Transferencia</option>
-          <option value="deposito"${o?.metodo==='deposito'?' selected':''}>Depósito</option>
-          <option value="cheque"${o?.metodo==='cheque'?' selected':''}>Cheque</option>
+          <option value="efectivo"${(o.metodo==='efectivo'||!o.metodo)?' selected':''}>Efectivo</option>
+          <option value="transferencia"${o.metodo==='transferencia'?' selected':''}>Transferencia</option>
+          <option value="deposito"${o.metodo==='deposito'?' selected':''}>Depósito</option>
+          <option value="cheque"${o.metodo==='cheque'?' selected':''}>Cheque</option>
         </select></div>
+      <div class="fg"><label class="fl">Inquilino (opc.)</label>
+        <select class="fi" id="oi-inq"><option value="">—</option>
+        ${inqs.map(x=>`<option value="${x.id}"${o.inqId===x.id?' selected':''}>${x.nombre.slice(0,20)}</option>`).join('')}</select></div>
     </div>
-    <div class="fg"><label class="fl">Notas</label><input class="fi" id="oi-notas" value="${o?.notas||''}"></div>
+    <div class="fg"><label class="fl">Notas</label><input class="fi" id="oi-notas" value="${o.notas||''}"></div>
     <div style="display:flex;gap:8px">
-      ${id?`<button class="btn bd" onclick="delOtroIngreso('${id}')">🗑️ Eliminar</button>`:''}
+      ${id?`<button class="btn bd" onclick="delOtroIngreso('${id}')">🗑️</button>`:''}
       <button class="btn bg bfu" onclick="saveOtroIngreso('${id||''}')">Guardar</button>
     </div></div>`);
+  setTimeout(()=>{const el=document.getElementById('oi-monto');if(el){el.focus();if(!id)el.select();}},150);
+}
+
+function selectOiCat(cat){
+  const inp=document.getElementById('oi-cat');if(!inp)return;
+  inp.value=cat;
+  document.querySelectorAll('#oi-cat-chips .cat-chip').forEach(el=>{
+    if(el.dataset.cat===cat){el.classList.add('on');el.style.borderColor='var(--g)';el.style.background='#5CB87A22';}
+    else{el.classList.remove('on');el.style.borderColor='#333';el.style.background='';}
+  });
+}
+
+function selectInmChipOi(inm){
+  const inp=document.getElementById('oi-inm');if(inp)inp.value=inm;
 }
 
 function saveOtroIngreso(id){
@@ -2107,7 +2203,11 @@ function renderRep(){
   const incActivos=DB.incidentes.filter(i=>!i.resuelto);
   const incResueltos=DB.incidentes.filter(i=>i.resuelto);
   document.getElementById('v-rep').innerHTML=`
-    <div class="st">📥 Exportar Excel</div>
+    <div class="st">📧 Resumen ejecutivo</div>
+    <div class="ro" onclick="openDailySummary()"><div style="font-size:26px">📧</div><div><div class="rtit">Resumen del día por correo/WA</div><div class="rdesc">Cobranza, gastos, incidentes, obras — listo para enviar</div></div></div>
+    <div class="ro" onclick="openBitacora()"><div style="font-size:26px">📅</div><div><div class="rtit">Bitácora del día</div><div class="rdesc">Pendientes y trabajos programados por hora</div></div></div>
+
+    <div class="st" style="margin-top:14px">📥 Exportar Excel</div>
     <div class="ro" onclick="exportExcelMes()"><div style="font-size:26px">📊</div><div><div class="rtit">Lista Inquilinaria</div><div class="rdesc">${MF[curMes-1]} ${curAnio} · formato original</div></div></div>
     <div class="ro" onclick="rangeMode='hoy';exportExcelMovs()"><div style="font-size:26px">💰</div><div><div class="rtit">Movimientos del día</div><div class="rdesc">Ingresos y gastos de hoy</div></div></div>
     <div class="ro" onclick="rangeMode='semana';exportExcelMovs()"><div style="font-size:26px">📅</div><div><div class="rtit">Movimientos de la semana</div><div class="rdesc">Esta semana — 3 hojas (ingresos, gastos, resumen)</div></div></div>
@@ -2898,8 +2998,467 @@ function genPDFInspeccionVacia(){
 }
 
 
+// ─── RESUMEN DIARIO POR CORREO ───────────────────
+function buildDailySummary(fecha){
+  const d=new Date(fecha);d.setHours(0,0,0,0);
+  const dNext=new Date(d.getTime()+86400000);
+  const inRange=(dateStr)=>{if(!dateStr)return false;const dd=new Date(dateStr);if(isNaN(dd))return false;return dd>=d&&dd<dNext;};
+  const pagos=DB.pagos.filter(p=>p.pagado&&inRange(p.fecha_pago));
+  const otros=DB.otros_ingresos.filter(o=>inRange(o.fecha));
+  const gastos=DB.gastos.filter(g=>inRange(g.fecha));
+  const incidentesNuevos=DB.incidentes.filter(i=>inRange(i.fecha));
+  const incidentesResueltos=DB.incidentes.filter(i=>i.resuelto&&inRange(i.fecha_resolucion));
+  const obras=DB.obras.filter(o=>inRange(o.fecha));
+  const inspecciones=DB.inspecciones.filter(ins=>inRange(ins.fecha));
+  const recibosSvc=DB.recibos_servicios.filter(r=>inRange(r.fecha));
+  const pagosSvc=DB.pagos_servicios.filter(p=>inRange(p.fecha));
+  const totalCobrado=pagos.reduce((s,p)=>s+Number(p.monto||0),0);
+  const totalOtros=otros.reduce((s,o)=>s+Number(o.monto||0),0);
+  const totalGastos=gastos.reduce((s,g)=>s+Number(g.monto||0),0);
+  const neto=totalCobrado+totalOtros-totalGastos;
+  const totalActivos=DB.incidentes.filter(i=>!i.resuelto).length;
+  return{fecha:d,pagos,otros,gastos,incidentesNuevos,incidentesResueltos,obras,inspecciones,recibosSvc,pagosSvc,totalCobrado,totalOtros,totalGastos,neto,totalActivos};
+}
+
+function renderDailySummaryText(data){
+  const line='━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+  const dateStr=data.fecha.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  let out=`📊 RESUMEN DE OPERACIÓN\n${dateStr}\n\n${line}\n\n`;
+  // Cobranza
+  out+=`💰 COBRANZA DEL DÍA\n`;
+  out+=`Cobrado: ${fmt(data.totalCobrado)}\n`;
+  out+=`Pagos recibidos: ${data.pagos.length}\n`;
+  if(data.pagos.length>0){
+    out+=`\nDetalle:\n`;
+    data.pagos.sort((a,b)=>new Date(a.fecha_pago)-new Date(b.fecha_pago)).forEach(p=>{
+      const t=DB.inquilinos.find(i=>i.id===p.iid);
+      const hora=new Date(p.fecha_pago).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+      out+=`• ${t?.nombre||'?'} — ${t?.inmueble||''}${t?.interior?' Int '+t.interior:''} — ${fmt(p.monto)} (${p.destino||'-'}, ${hora})${p.adelantado?' ✨':''}\n`;
+    });
+  }
+  out+=`\n${line}\n\n`;
+  // Gastos
+  if(data.gastos.length>0){
+    out+=`💸 GASTOS REGISTRADOS\n`;
+    out+=`Total: ${fmt(data.totalGastos)}\n\n`;
+    data.gastos.forEach(g=>{
+      const cat=CATS_GASTO[g.categoria]?.n||g.categoria;
+      out+=`• ${g.descripcion} — ${fmt(g.monto)} — ${cat}${g.inmueble?' — '+g.inmueble:''}\n`;
+    });
+    out+=`\n${line}\n\n`;
+  }
+  // Otros ingresos
+  if(data.otros.length>0){
+    out+=`💵 OTROS INGRESOS\n`;
+    out+=`Total: ${fmt(data.totalOtros)}\n\n`;
+    data.otros.forEach(o=>{
+      const cat=CATS_OTROS_ING[o.categoria]?.n||o.categoria;
+      out+=`• ${o.concepto} — ${fmt(o.monto)} — ${cat}${o.inmueble?' — '+o.inmueble:''}\n`;
+    });
+    out+=`\n${line}\n\n`;
+  }
+  // Incidentes
+  if(data.incidentesNuevos.length>0||data.incidentesResueltos.length>0){
+    out+=`🚨 INCIDENTES\n`;
+    if(data.incidentesNuevos.length>0){
+      out+=`\n${data.incidentesNuevos.length} nuevo${data.incidentesNuevos.length===1?'':'s'}:\n`;
+      data.incidentesNuevos.forEach(i=>{
+        const n=NIVELES_INC.find(x=>x.k===i.nivel)?.n||'-';
+        out+=`• #${i.numero} — ${i.lugar}${i.depto_vacio?' (vacío)':''} — ${(i.descripcion||'').slice(0,100)} — ${n}\n`;
+      });
+    }
+    if(data.incidentesResueltos.length>0){
+      out+=`\n${data.incidentesResueltos.length} resuelto${data.incidentesResueltos.length===1?'':'s'} hoy:\n`;
+      data.incidentesResueltos.forEach(i=>{
+        out+=`• #${i.numero} — ${i.lugar}${i.notas_resolucion?' — '+i.notas_resolucion.slice(0,80):''}\n`;
+      });
+    }
+    out+=`\nEstado: ${data.totalActivos} incidente${data.totalActivos===1?'':'s'} activo${data.totalActivos===1?'':'s'} en total\n\n${line}\n\n`;
+  }
+  // Obras
+  if(data.obras.length>0){
+    out+=`🔨 OBRAS DEL DÍA\n`;
+    data.obras.forEach(o=>{
+      const t=TIPOS_OBRA[o.tipo]?.n||o.tipo;
+      out+=`• ${t} — ${o.inmueble||'?'} — ${fmt(o.costo)}${o.trabajador?' — '+o.trabajador:''}\n`;
+    });
+    out+=`\n${line}\n\n`;
+  }
+  // Inspecciones
+  if(data.inspecciones.length>0){
+    out+=`🏠 INSPECCIONES\n`;
+    data.inspecciones.forEach(ins=>{
+      out+=`• ${ins.inmueble} — ${(ins.porcentaje||0).toFixed(1)}%${ins.inspector?' — '+ins.inspector:''}\n`;
+    });
+    out+=`\n${line}\n\n`;
+  }
+  // Servicios (recibos y pagos)
+  if(data.recibosSvc.length>0||data.pagosSvc.length>0){
+    out+=`🔧 SERVICIOS\n`;
+    if(data.recibosSvc.length>0){
+      out+=`\nRecibos registrados:\n`;
+      data.recibosSvc.forEach(r=>{
+        const sv=DB.servicios.find(x=>x.id===r.servicioId);
+        const tipo=sv?TIPOS_SVC[sv.tipo]?.n||sv.tipo:'?';
+        out+=`• ${tipo} ${sv?.inmueble||''} — ${fmt(r.monto)}${r.concepto?' — '+r.concepto:''}\n`;
+      });
+    }
+    if(data.pagosSvc.length>0){
+      out+=`\nPagos realizados:\n`;
+      data.pagosSvc.forEach(p=>{
+        const sv=DB.servicios.find(x=>x.id===p.servicioId);
+        const tipo=sv?TIPOS_SVC[sv.tipo]?.n||sv.tipo:'?';
+        out+=`• ${tipo} ${sv?.inmueble||''} — ${fmt(p.monto)}${p.concepto?' — '+p.concepto:''}\n`;
+      });
+    }
+    out+=`\n${line}\n\n`;
+  }
+  // Neto
+  out+=`📈 NETO DEL DÍA\n`;
+  out+=`Ingresos: ${fmt(data.totalCobrado+data.totalOtros)}\n`;
+  out+=`Gastos: ${fmt(data.totalGastos)}\n`;
+  out+=`NETO: ${fmt(data.neto)}\n`;
+  out+=`\n${line}\n`;
+  out+=`\nGenerado desde Gestión de Rentas\n${new Date().toLocaleString('es-MX')}`;
+  return out;
+}
+
+function openDailySummary(){showDailySummary(todayISO());}
+
+function showDailySummary(fechaStr){
+  const [yy,mm,dd]=fechaStr.split('-').map(Number);
+  const fecha=new Date(yy,mm-1,dd);
+  const data=buildDailySummary(fecha);
+  const text=renderDailySummaryText(data);
+  const savedEmails=localStorage.getItem('rentas_emails')||(currentUser?.email||'');
+  // HTML preview
+  const preview=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>').replace(/━{20,}/g,'<hr style="border:none;border-top:1px solid #333;margin:6px 0">');
+  const totalItems=data.pagos.length+data.gastos.length+data.otros.length+data.incidentesNuevos.length+data.incidentesResueltos.length+data.obras.length+data.inspecciones.length+data.recibosSvc.length+data.pagosSvc.length;
+  const dateStr=fecha.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'});
+  modal(`<div class="ms" style="max-height:96vh"><div class="mh"></div>
+    <div class="mt2">📧 Resumen del día</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px">${dateStr} · ${totalItems} eventos · ${text.length} caracteres</div>
+    <div class="fg">
+      <label class="fl">Fecha</label>
+      <input class="fi" type="date" id="ds-fecha" value="${fechaStr}" onchange="showDailySummary(this.value)">
+    </div>
+    <div class="fg">
+      <label class="fl">Vista previa</label>
+      <div style="font-family:monospace;font-size:10.5px;line-height:1.5;color:#ccc;max-height:260px;overflow-y:auto;background:#0a0a0a;padding:10px;border-radius:8px;border:1px solid #222;white-space:pre-wrap">${preview}</div>
+    </div>
+    <div class="fg">
+      <label class="fl">Destinatarios (separados por coma)</label>
+      <input class="fi" id="ds-emails" value="${savedEmails}" placeholder="tu@correo.com, contador@ejemplo.com">
+      <div style="font-size:10px;color:var(--dim);margin-top:4px">Se guarda para próximas veces</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <button class="btn bg" onclick="sendDailyEmail('${fechaStr}')">📧 Correo</button>
+      <button class="btn bs" onclick="sendDailyWA('${fechaStr}')" style="background:#25D366;color:#000">💬 WhatsApp</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr ${navigator.share?'1fr':''};gap:8px">
+      <button class="btn bo" onclick="copyDailySummary('${fechaStr}')">📋 Copiar</button>
+      ${navigator.share?`<button class="btn bo" onclick="shareDailySummary('${fechaStr}')">📤 Compartir…</button>`:''}
+    </div>
+    <div style="font-size:10px;color:var(--dim);margin-top:12px;text-align:center">Correo abre tu app de correo · WhatsApp abre chat para elegir contacto · Copiar deja el texto en el portapapeles</div>
+    </div>`);
+}
+
+function sendDailyEmail(fechaStr){
+  const emails=document.getElementById('ds-emails').value.trim();
+  if(!emails){snack('Agrega al menos un destinatario');return;}
+  localStorage.setItem('rentas_emails',emails);
+  const [yy,mm,dd]=fechaStr.split('-').map(Number);
+  const fecha=new Date(yy,mm-1,dd);
+  const data=buildDailySummary(fecha);
+  const text=renderDailySummaryText(data);
+  const subject=`Resumen ${fecha.toLocaleDateString('es-MX')} — Gestión de Rentas`;
+  const mailtoUrl=`mailto:${emails}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+  if(mailtoUrl.length>6000){
+    if(!confirm(`El resumen es muy largo (${text.length} caracteres). Algunos correos pueden truncarlo. ¿Continuar de todos modos?\n\nAlternativa: usar "Copiar" y pegar en un correo nuevo.`))return;
+  }
+  window.location.href=mailtoUrl;
+  snack('📧 Abriendo tu app de correo…');
+}
+
+function copyDailySummary(fechaStr){
+  const [yy,mm,dd]=fechaStr.split('-').map(Number);
+  const fecha=new Date(yy,mm-1,dd);
+  const data=buildDailySummary(fecha);
+  const text=renderDailySummaryText(data);
+  navigator.clipboard.writeText(text).then(()=>{
+    snack(`📋 Copiado (${text.length} caracteres) — pégalo en el correo`);
+  }).catch(()=>{
+    // Fallback for browsers that block clipboard
+    const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');snack('📋 Copiado');}catch(e){snack('No se pudo copiar. Selecciona manualmente.');}
+    document.body.removeChild(ta);
+  });
+}
+
+async function shareDailySummary(fechaStr){
+  const [yy,mm,dd]=fechaStr.split('-').map(Number);
+  const fecha=new Date(yy,mm-1,dd);
+  const data=buildDailySummary(fecha);
+  const text=renderDailySummaryText(data);
+  try{
+    await navigator.share({
+      title:`Resumen ${fecha.toLocaleDateString('es-MX')}`,
+      text:text
+    });
+    snack('📤 Compartido');
+  }catch(err){
+    if(err.name!=='AbortError')snack('Error: '+err.message);
+  }
+}
+
+// ─── QUICK ENTRY FAB ─────────────────────────────
+function openQuickEntry(){
+  modal(`<div class="ms" style="max-height:70vh">
+    <div class="mh"></div>
+    <div class="mt2">⚡ Registro rápido</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:14px">¿Qué quieres registrar?</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <button class="quick-btn" onclick="closeM();openAddGasto()" style="padding:20px 10px;text-align:center">
+        <div style="font-size:36px">💸</div>
+        <div style="font-weight:700;margin-top:6px;font-size:14px">Gasto</div>
+        <div style="font-size:10px;color:var(--dim);margin-top:2px">Compras, materiales, pagos</div>
+      </button>
+      <button class="quick-btn" onclick="closeM();openAddOtroIngreso()" style="padding:20px 10px;text-align:center">
+        <div style="font-size:36px">💰</div>
+        <div style="font-weight:700;margin-top:6px;font-size:14px">Otro ingreso</div>
+        <div style="font-size:10px;color:var(--dim);margin-top:2px">Multas, servicios, otros</div>
+      </button>
+      <button class="quick-btn" onclick="closeM();openBitacoraItem(null,'pendiente')" style="padding:20px 10px;text-align:center">
+        <div style="font-size:36px">☐</div>
+        <div style="font-weight:700;margin-top:6px;font-size:14px">Pendiente</div>
+        <div style="font-size:10px;color:var(--dim);margin-top:2px">Tarea sin hora</div>
+      </button>
+      <button class="quick-btn" onclick="closeM();openBitacoraItem(null,'programado')" style="padding:20px 10px;text-align:center">
+        <div style="font-size:36px">⏰</div>
+        <div style="font-weight:700;margin-top:6px;font-size:14px">Programado</div>
+        <div style="font-size:10px;color:var(--dim);margin-top:2px">Cita, visita, entrega</div>
+      </button>
+    </div>
+  </div>`);
+}
+
+// ─── BITÁCORA DEL DÍA ────────────────────────────
+function openBitacora(fechaStr){
+  const fecha=fechaStr||todayISO();
+  const items=DB.bitacora.filter(b=>b.fecha===fecha).sort((a,b)=>{
+    if(a.hora&&!b.hora)return -1;
+    if(!a.hora&&b.hora)return 1;
+    if(a.hora&&b.hora)return a.hora.localeCompare(b.hora);
+    return (a.creado||'').localeCompare(b.creado||'');
+  });
+  const programados=items.filter(x=>x.hora);
+  const pendientes=items.filter(x=>!x.hora);
+  const [yy,mm,dd]=fecha.split('-').map(Number);
+  const d=new Date(yy,mm-1,dd);
+  const dateStr=d.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'});
+  const props=[...new Set(DB.inquilinos.map(i=>i.inmueble))].filter(Boolean).sort();
+
+  const bitItemHTML=(b)=>`<div class="bit-item ${b.hecho?'done':''}">
+    <div class="bit-check ${b.hecho?'done':''}" onclick="toggleBitacoraHecho('${b.id}')">${b.hecho?'✓':''}</div>
+    ${b.hora?`<div class="bit-hora">${b.hora}</div>`:''}
+    <div style="flex:1;min-width:0;cursor:pointer" onclick="openBitacoraItem('${b.id}')">
+      <div class="bit-titulo" style="font-size:13px;font-weight:600">${b.titulo}</div>
+      ${b.inmueble?`<div style="font-size:10px;color:var(--gold);margin-top:2px">🏢 ${b.inmueble}</div>`:''}
+      ${b.notas?`<div style="font-size:11px;color:var(--dim);margin-top:2px">${b.notas.slice(0,120)}${b.notas.length>120?'...':''}</div>`:''}
+      ${b.hecho&&b.fecha_hecho?`<div style="font-size:9px;color:var(--g);margin-top:2px">✓ Hecho ${new Date(b.fecha_hecho).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</div>`:''}
+    </div>
+  </div>`;
+
+  modal(`<div class="ms" style="max-height:96vh"><div class="mh"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div><div class="mt2" style="margin:0">📅 Bitácora</div>
+      <div style="font-size:11px;color:var(--dim);margin-top:2px">${dateStr}</div></div>
+    </div>
+    <div class="fg" style="margin-bottom:12px">
+      <input class="fi" type="date" id="bit-fecha" value="${fecha}" onchange="openBitacora(this.value)">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <button class="btn bo" onclick="openBitacoraItem(null,'pendiente','${fecha}')">☐ + Pendiente</button>
+      <button class="btn bs" onclick="openBitacoraItem(null,'programado','${fecha}')">⏰ + Programado</button>
+    </div>
+    ${programados.length>0?`<div class="st-sm">⏰ Programados (${programados.length})</div>
+    ${programados.map(bitItemHTML).join('')}`:''}
+    ${pendientes.length>0?`<div class="st-sm" style="margin-top:14px">☐ Pendientes (${pendientes.length})</div>
+    ${pendientes.map(bitItemHTML).join('')}`:''}
+    ${items.length===0?`<div class="es"><div class="ei">📅</div><div class="et">Sin items para este día<br><br>Agrega pendientes o cosas programadas.</div></div>`:''}
+    <div style="height:20px"></div>
+  </div>`);
+}
+
+function openBitacoraItem(id,tipo,fecha){
+  const b=id?DB.bitacora.find(x=>x.id===id):{fecha:fecha||todayISO(),hora:(tipo==='programado'?'09:00':''),titulo:'',notas:'',inmueble:''};
+  const isPend=!b.hora;
+  const props=[...new Set(DB.inquilinos.map(i=>i.inmueble))].filter(Boolean).sort();
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">${id?'Editar':'Nuevo'} ${b.hora?'⏰ programado':'☐ pendiente'}</div>
+    <div class="fg">
+      <label class="fl">Título *</label>
+      <input class="fi" id="bit-titulo" value="${b.titulo||''}" placeholder="Ej: Visitar XOCO con Freddy" autofocus>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Fecha *</label><input class="fi" type="date" id="bit-fecha-e" value="${b.fecha||todayISO()}"></div>
+      <div class="fg"><label class="fl">Hora ${isPend?'(opcional)':''}</label><input class="fi" type="time" id="bit-hora" value="${b.hora||''}"></div>
+    </div>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:12px;margin-top:-4px">Con hora → se muestra en Programados. Sin hora → se muestra en Pendientes.</div>
+    <div class="fg">
+      <label class="fl">Inmueble (opcional)</label>
+      <input class="fi" id="bit-inmueble" list="props-bit" value="${b.inmueble||''}">
+      <datalist id="props-bit">${props.map(p=>`<option value="${p}">`).join('')}</datalist>
+    </div>
+    <div class="fg">
+      <label class="fl">Notas</label>
+      <textarea class="fi" id="bit-notas" rows="3">${b.notas||''}</textarea>
+    </div>
+    <div style="display:flex;gap:8px">
+      ${id?`<button class="btn bd" onclick="delBitacoraItem('${id}')">🗑️</button>`:''}
+      <button class="btn bg bfu" onclick="saveBitacoraItem('${id||''}')">Guardar</button>
+    </div></div>`);
+}
+
+function saveBitacoraItem(id){
+  const titulo=document.getElementById('bit-titulo').value.trim();
+  const fecha=document.getElementById('bit-fecha-e').value;
+  if(!titulo||!fecha){snack('Título y fecha requeridos');return;}
+  const obj={
+    titulo,fecha,
+    hora:document.getElementById('bit-hora').value||'',
+    inmueble:document.getElementById('bit-inmueble').value.trim(),
+    notas:document.getElementById('bit-notas').value.trim()
+  };
+  if(id){Object.assign(DB.bitacora.find(x=>x.id===id),obj);}
+  else{DB.bitacora.push({id:uid(),...obj,hecho:false,creado:nowISO()});}
+  saveDB('bitacora');
+  closeM();snack(id?'Actualizado ✓':'Agregado a la bitácora ✓');
+  openBitacora(fecha);
+}
+
+function toggleBitacoraHecho(id){
+  const b=DB.bitacora.find(x=>x.id===id);if(!b)return;
+  b.hecho=!b.hecho;
+  b.fecha_hecho=b.hecho?nowISO():null;
+  saveDB('bitacora');
+  openBitacora(b.fecha);
+  if(b.hecho)snack('✓ Marcado como hecho');
+}
+
+function delBitacoraItem(id){
+  const b=DB.bitacora.find(x=>x.id===id);if(!b)return;
+  if(!confirm('¿Eliminar de la bitácora?'))return;
+  const fecha=b.fecha;
+  DB.bitacora=DB.bitacora.filter(x=>x.id!==id);
+  saveDB('bitacora');closeM();snack('Eliminado');
+  openBitacora(fecha);
+}
+
+function getBitacoraHoyResumen(){
+  const hoy=todayISO();
+  const items=DB.bitacora.filter(b=>b.fecha===hoy);
+  const pendActivos=items.filter(x=>!x.hora&&!x.hecho);
+  const progActivos=items.filter(x=>x.hora&&!x.hecho).sort((a,b)=>a.hora.localeCompare(b.hora));
+  const hechos=items.filter(x=>x.hecho).length;
+  return{items,pendActivos,progActivos,hechos};
+}
+
+// ─── Category inference for gastos ──
+const CAT_KEYWORDS={
+  carros:['gasolina','autopista','llanta','aceite','servicio auto','estacionamiento','uber','taxi','peaje','gomas','pemex'],
+  mantenimiento:['pintura','cemento','cal','yeso','pegazulejo','impermeabilizante','plomería','tornillo','clavo','tabla','madera','vidrio','cerradura','tapa','regadera','contacto','apagador','foco','pila','llave','tubería','manguera','vinilica','esmalte','material','ferretería'],
+  mano_obra:['freddy','albañil','plomero','electricista','pintor','jornal','peón','oficial','ayudante','mano de obra'],
+  servicios:['agua','luz','cfe','predial','gas','internet','teléfono','wifi','izzi','totalplay','sacmex','tv','naturgy'],
+  otros:[]
+};
+
+function inferCategoryFromDesc(desc){
+  if(!desc||desc.length<3)return;
+  const d=desc.toLowerCase();
+  for(const [cat,keywords] of Object.entries(CAT_KEYWORDS)){
+    if(keywords.some(k=>d.includes(k))){
+      const inp=document.getElementById('g-cat');
+      if(inp&&inp.value!==cat){selectCat(cat);snack('Categoría auto: '+(CATS_GASTO[cat]?.n||cat),1500);}
+      return;
+    }
+  }
+}
+
+function selectCat(cat){
+  const inp=document.getElementById('g-cat');if(!inp)return;
+  inp.value=cat;
+  document.querySelectorAll('#cat-chips .cat-chip').forEach(el=>{
+    const c=CATS_GASTO[el.dataset.cat];
+    if(el.dataset.cat===cat){el.classList.add('on');el.style.borderColor=c.c;el.style.background=c.c+'22';}
+    else{el.classList.remove('on');el.style.borderColor='#333';el.style.background='';}
+  });
+}
+
+function selectInmChip(inm){
+  const inp=document.getElementById('g-inm')||document.getElementById('oi-inm');
+  if(inp)inp.value=inm;
+}
+
+// WhatsApp summary
+function renderDailySummaryWA(data){
+  const dateStr=data.fecha.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  let out=`*📊 Resumen del día*\n_${dateStr}_\n\n`;
+  out+=`*💰 Cobranza*\n`;
+  out+=`Total: ${fmt(data.totalCobrado)} (${data.pagos.length} pagos)\n`;
+  if(data.pagos.length>0&&data.pagos.length<=15){
+    data.pagos.sort((a,b)=>new Date(a.fecha_pago)-new Date(b.fecha_pago)).forEach(p=>{
+      const t=DB.inquilinos.find(i=>i.id===p.iid);
+      out+=`• ${t?.nombre||'?'} — ${fmt(p.monto)}${p.adelantado?' ✨':''}\n`;
+    });
+  }else if(data.pagos.length>15){
+    out+=`(detalle completo en el correo/app)\n`;
+  }
+  if(data.gastos.length>0){
+    out+=`\n*💸 Gastos*\nTotal: ${fmt(data.totalGastos)}\n`;
+    data.gastos.slice(0,10).forEach(g=>{out+=`• ${g.descripcion} — ${fmt(g.monto)}\n`;});
+    if(data.gastos.length>10)out+=`(+${data.gastos.length-10} más)\n`;
+  }
+  if(data.otros.length>0){
+    out+=`\n*💵 Otros ingresos*\nTotal: ${fmt(data.totalOtros)}\n`;
+    data.otros.forEach(o=>out+=`• ${o.concepto} — ${fmt(o.monto)}\n`);
+  }
+  if(data.incidentesNuevos.length>0||data.incidentesResueltos.length>0){
+    out+=`\n*🚨 Incidentes*\n`;
+    if(data.incidentesNuevos.length>0){
+      out+=`${data.incidentesNuevos.length} nuevo${data.incidentesNuevos.length===1?'':'s'}: `;
+      out+=data.incidentesNuevos.map(i=>`#${i.numero} ${i.lugar}`).join(', ')+'\n';
+    }
+    if(data.incidentesResueltos.length>0){
+      out+=`${data.incidentesResueltos.length} resuelto${data.incidentesResueltos.length===1?'':'s'} hoy\n`;
+    }
+    out+=`_${data.totalActivos} activos en total_\n`;
+  }
+  if(data.obras.length>0){
+    out+=`\n*🔨 Obras* (${data.obras.length})\n`;
+    data.obras.forEach(o=>out+=`• ${o.inmueble||'?'} — ${fmt(o.costo)}\n`);
+  }
+  if(data.inspecciones.length>0){
+    out+=`\n*🏠 Inspecciones*\n`;
+    data.inspecciones.forEach(ins=>out+=`• ${ins.inmueble} — ${(ins.porcentaje||0).toFixed(0)}%\n`);
+  }
+  out+=`\n*📈 Neto: ${fmt(data.neto)}*\n`;
+  out+=`_Enviado desde Gestión de Rentas_`;
+  return out;
+}
+
+function sendDailyWA(fechaStr){
+  const [yy,mm,dd]=fechaStr.split('-').map(Number);
+  const fecha=new Date(yy,mm-1,dd);
+  const data=buildDailySummary(fecha);
+  const text=renderDailySummaryWA(data);
+  const url=`https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url,'_blank');
+  snack('💬 Abriendo WhatsApp...');
+}
+
 function exportFullBackup(){
-  const data={inquilinos:DB.inquilinos,pagos:DB.pagos,servicios:DB.servicios,gastos:DB.gastos,obras:DB.obras,incidentes:DB.incidentes,otros_ingresos:DB.otros_ingresos,inmuebles:DB.inmuebles,inspecciones:DB.inspecciones,recibos_servicios:DB.recibos_servicios,pagos_servicios:DB.pagos_servicios,fecha:nowISO()};
+  const data={inquilinos:DB.inquilinos,pagos:DB.pagos,servicios:DB.servicios,gastos:DB.gastos,obras:DB.obras,incidentes:DB.incidentes,otros_ingresos:DB.otros_ingresos,inmuebles:DB.inmuebles,inspecciones:DB.inspecciones,recibos_servicios:DB.recibos_servicios,pagos_servicios:DB.pagos_servicios,bitacora:DB.bitacora,fecha:nowISO()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`respaldo_rentas_${todayISO()}.json`;a.click();
@@ -2914,7 +3473,7 @@ function importJSON(){
     r.onload=ev=>{
       try{const d=JSON.parse(ev.target.result);
         if(!confirm(`¿Reemplazar datos actuales?\nInquilinos: ${d.inquilinos?.length||0}\nPagos: ${d.pagos?.length||0}\nGastos: ${d.gastos?.length||0}\nObras: ${d.obras?.length||0}\nIncidentes: ${d.incidentes?.length||0}\nInspecciones: ${d.inspecciones?.length||0}`))return;
-        ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios'].forEach(k=>{if(d[k])DB[k]=d[k];saveDB(k);});
+        ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora'].forEach(k=>{if(d[k])DB[k]=d[k];saveDB(k);});
         snack('✓ Importado');renderRep();
       }catch(err){snack('Error: '+err.message)}
     };r.readAsText(f);
@@ -2924,7 +3483,7 @@ function importJSON(){
 function resetAll(){
   if(!confirm('¿Borrar TODOS los datos locales? Esta acción NO se puede deshacer.\n\nSe recomienda hacer respaldo primero.'))return;
   if(!confirm('¿Estás completamente seguro?'))return;
-  ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios'].forEach(k=>localStorage.removeItem('rentas_'+k));
+  ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora'].forEach(k=>localStorage.removeItem('rentas_'+k));
   location.reload();
 }
 
