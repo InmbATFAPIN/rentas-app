@@ -222,6 +222,11 @@ textarea.fi{resize:vertical;min-height:60px}
     <div><div class="hdr-t" id="hdr-t">Panel</div><div class="hdr-s" id="hdr-s"></div></div>
     <div id="hdr-a" style="display:flex;gap:7px"></div>
   </header>
+  <div id="cartera-bar" onclick="openCarteraPicker()" style="display:flex;align-items:center;gap:8px;padding:7px 16px;background:linear-gradient(90deg,#1a1a1a,#171717);border-bottom:1px solid #2a2211;font-size:11px;font-weight:600;color:var(--gold);cursor:pointer;letter-spacing:.3px">
+    <span style="font-size:14px">📁</span>
+    <span id="cartera-name">Oficina Familiar</span>
+    <span style="margin-left:auto;color:var(--dim);font-size:10px">tocar para cambiar ▼</span>
+  </div>
   <main class="mc">
     <div id="v-dash" class="view on"></div>
     <div id="v-con" class="view"></div>
@@ -244,7 +249,7 @@ textarea.fi{resize:vertical;min-height:60px}
 </div>
 <script>
 // ─── State ─────────────────────────────────────────────
-let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[]};
+let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[]};
 let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null,propFilter='todos';
 const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MF=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -342,7 +347,7 @@ let cloudUnsubs = [];
 let saveTimers = {};
 let cloudStateNow = 'offline';
 let cloudMsgNow = 'Sin sincronización';
-const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora'];
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras'];
 const PHOTO_COLLS = ['obras','incidentes','inspecciones']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
@@ -479,6 +484,9 @@ async function downloadAllFromCloud() {
       console.error(`Load ${k}:`, e);
     }
   }
+  // Ensure default cartera exists and all items have carteraId after cloud load
+  migrateToCarteras();
+  updCartBar();
   rerender();
 }
 
@@ -555,13 +563,15 @@ async function cloudSaveNow(k) {
 // ─── Storage ───────────────────────────────────────────
 function loadDB(){
   let firstRun=true;
-  ["inquilinos","pagos","servicios","gastos","obras","incidentes","otros_ingresos","inmuebles","inspecciones","recibos_servicios","pagos_servicios","bitacora"].forEach(k=>{
+  ["inquilinos","pagos","servicios","gastos","obras","incidentes","otros_ingresos","inmuebles","inspecciones","recibos_servicios","pagos_servicios","bitacora","carteras"].forEach(k=>{
     try{const v=localStorage.getItem("rentas_"+k);if(v){DB[k]=JSON.parse(v);if(k==="inquilinos"&&DB[k].length>0)firstRun=false;}}catch(e){}
   });
   // Migration: rename propiedad -> inmueble in servicios
   DB.servicios.forEach(s=>{
     if(s.propiedad&&!s.inmueble){s.inmueble=s.propiedad;delete s.propiedad;}
   });
+  // Migration: ensure default cartera exists and all items belong to it
+  migrateToCarteras();
   if(firstRun){
     DB.inquilinos=SEED.inquilinos;
     DB.pagos=SEED.pagos.map(p=>({...p,id:uid()}));
@@ -570,10 +580,88 @@ function loadDB(){
   }
 }
 function saveDB(k){
+  // Auto-assign carteraId to any new item without one
+  const activeId=getActiveCarteraId();
+  if(activeId&&Array.isArray(DB[k])&&k!=='carteras'){
+    DB[k].forEach(item=>{
+      if(item&&typeof item==='object'&&!item.carteraId)item.carteraId=activeId;
+    });
+  }
   saveDBLocal(k);
   cloudSaveDebounced(k);
 }
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5)}
+
+// ─── CARTERAS (multi-cliente) ─────────────────────────
+function getActiveCarteraId(){
+  const stored=localStorage.getItem('rentas_active_cartera');
+  if(stored&&DB.carteras.find(c=>c.id===stored))return stored;
+  return DB.carteras[0]?.id||null;
+}
+function getActiveCartera(){
+  const id=getActiveCarteraId();
+  return DB.carteras.find(c=>c.id===id)||null;
+}
+function setActiveCartera(id){
+  const cart=DB.carteras.find(c=>c.id===id);
+  if(!cart)return;
+  localStorage.setItem('rentas_active_cartera',id);
+  snack('📁 Cartera: '+cart.nombre);
+  updCartBar();
+  updNotif();
+  rerender();
+}
+function inCartera(item){
+  const id=getActiveCarteraId();
+  if(!id)return true; // no cartera system yet
+  return item&&item.carteraId===id;
+}
+function migrateToCarteras(){
+  // Ensure default cartera exists
+  if(DB.carteras.length===0){
+    DB.carteras.push({
+      id:'cart_familia',
+      nombre:'Oficina Familiar',
+      tipo:'familia',
+      contacto:'',
+      correo:'',
+      telefono:'',
+      notas:'Cartera principal (default)',
+      fecha_inicio:todayISO(),
+      creado:nowISO()
+    });
+    saveDBLocal('carteras');
+    cloudSaveDebounced('carteras');
+  }
+  // Assign default cartera to all items without carteraId
+  const defaultId=DB.carteras[0].id;
+  ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora'].forEach(k=>{
+    let migrated=0;
+    (DB[k]||[]).forEach(item=>{
+      if(item&&typeof item==='object'&&!item.carteraId){item.carteraId=defaultId;migrated++;}
+    });
+    if(migrated>0){saveDBLocal(k);cloudSaveDebounced(k);}
+  });
+}
+function updCartBar(){
+  const el=document.getElementById('cartera-name');
+  if(el){const c=getActiveCartera();el.textContent=c?.nombre||'—';}
+  const c2=document.getElementById('cartera-bar');
+  if(c2){const c=getActiveCartera();c2.title='Cartera activa: '+(c?.nombre||'ninguna');}
+}
+function rerender(){
+  if(curView==='dash')renderDash();
+  else if(curView==='con')renderCon();
+  else if(curView==='inq')renderInq();
+  else if(curView==='svc')renderSvc();
+  else if(curView==='rep')renderRep();
+  else if(curView==='det'&&detTenant){
+    // Check if tenant still visible in active cartera
+    detTenant=DB.inquilinos.find(x=>x.id===detTenant.id);
+    if(!detTenant||!inCartera(detTenant))go('inq');
+    else renderDet();
+  }
+}
 
 // ─── Utils ─────────────────────────────────────────────
 function fmt(n){return"$"+Number(n||0).toLocaleString("es-MX",{minimumFractionDigits:0})}
@@ -597,14 +685,14 @@ function getServicioBalance(svcId){
   return recibos-pagos;
 }
 function getInmuebleDeudaTotal(inm){
-  const svcs=DB.servicios.filter(s=>s.inmueble===inm);
+  const svcs=DB.servicios.filter(s=>s.inmueble===inm&&inCartera(s));
   return svcs.reduce((s,sv)=>s+Math.max(0,getServicioBalance(sv.id)),0);
 }
 function getInmuebleRendimiento(inm,anio){
   anio=anio||HA;
   const iniAnio=new Date(anio,0,1);
   const finAnio=new Date(anio+1,0,1);
-  const inqIds=DB.inquilinos.filter(x=>x.inmueble===inm).map(x=>x.id);
+  const inqIds=DB.inquilinos.filter(x=>x.inmueble===inm&&inCartera(x)).map(x=>x.id);
   const rentas=DB.pagos.filter(p=>{
     if(!p.pagado||!p.fecha_pago)return false;
     if(!inqIds.includes(p.iid))return false;
@@ -612,18 +700,18 @@ function getInmuebleRendimiento(inm,anio){
     return d>=iniAnio&&d<finAnio;
   }).reduce((s,p)=>s+Number(p.monto||0),0);
   const otros=DB.otros_ingresos.filter(o=>{
-    if(o.inmueble!==inm)return false;
+    if(o.inmueble!==inm||!inCartera(o))return false;
     const d=new Date(o.fecha||0);
     return d>=iniAnio&&d<finAnio;
   }).reduce((s,o)=>s+Number(o.monto||0),0);
   const gastos=DB.gastos.filter(g=>{
-    if(g.inmueble!==inm)return false;
+    if(g.inmueble!==inm||!inCartera(g))return false;
     const d=new Date(g.fecha||0);
     return d>=iniAnio&&d<finAnio;
   }).reduce((s,g)=>s+Number(g.monto||0),0);
   // Obras SIN gastoVinculado (las vinculadas ya están en gastos)
   const obrasSueltas=DB.obras.filter(o=>{
-    if(o.inmueble!==inm)return false;
+    if(o.inmueble!==inm||!inCartera(o))return false;
     if(o.gastoVinculado)return false;
     const d=new Date(o.fecha||0);
     return d>=iniAnio&&d<finAnio;
@@ -708,19 +796,19 @@ function handleFAB(){
   else if(curView==="con"&&conSub==='gastos')openAddGasto();
 }
 function updNotif(){
-  const n=DB.inquilinos.filter(i=>i.estado==="activo"&&isLate(i.id,HM,HA)).length;
+  const n=DB.inquilinos.filter(i=>i.estado==="activo"&&inCartera(i)&&isLate(i.id,HM,HA)).length;
   document.getElementById("nd-dash").style.display=n?"block":"none";
 }
 
 // ─── Dashboard ─────────────────────────────────────────
 function renderDash(){
-  const act=DB.inquilinos.filter(i=>i.estado==="activo");
+  const act=DB.inquilinos.filter(i=>i.estado==="activo"&&inCartera(i));
   const venc=act.filter(i=>isLate(i.id,HM,HA));
   const pagds=act.filter(i=>isPagado(i.id,HM,HA));
-  const cobMes=DB.pagos.filter(p=>p.mes===HM&&p.anio===HA&&p.pagado).reduce((s,p)=>s+Number(p.monto),0);
+  const cobMes=DB.pagos.filter(p=>p.mes===HM&&p.anio===HA&&p.pagado&&inCartera(p)).reduce((s,p)=>s+Number(p.monto),0);
   const totalEsp=act.reduce((s,i)=>s+Number(i.renta||0),0);
   const pct=totalEsp>0?Math.round(cobMes/totalEsp*100):0;
-  const gMes=DB.gastos.filter(g=>{const d=new Date(g.fecha);return d.getMonth()+1===HM&&d.getFullYear()===HA}).reduce((s,g)=>s+Number(g.monto),0);
+  const gMes=DB.gastos.filter(g=>{if(!inCartera(g))return false;const d=new Date(g.fecha);return d.getMonth()+1===HM&&d.getFullYear()===HA}).reduce((s,g)=>s+Number(g.monto),0);
   const neto=cobMes-gMes;
   document.getElementById("v-dash").innerHTML=`
     <div id="dash-cloud-card" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="snack('☁️ '+cloudMsgNow)"></div>
@@ -857,7 +945,7 @@ function toggleInm(inm){expandedInm[inm]=expandedInm[inm]===false?true:false;ren
 
 // ─── FICHA COMPLETA DEL INMUEBLE ────────
 function openInmuebleDet(inm){
-  const tenants=DB.inquilinos.filter(t=>t.inmueble===inm);
+  const tenants=DB.inquilinos.filter(t=>t.inmueble===inm&&inCartera(t));
   const activos=tenants.filter(t=>t.estado==='activo');
   const inmData=DB.inmuebles.find(x=>x.nombre===inm)||{};
   const propietarios=[...new Set(activos.map(t=>t.propietario).filter(Boolean))];
@@ -870,21 +958,22 @@ function openInmuebleDet(inm){
   const rend=getInmuebleRendimiento(inm,HA);
   const rColor=rend.neto>=0?'#5CB87A':'#E05C5C';
   // Servicios del inmueble con balance
-  const svcs=DB.servicios.filter(s=>s.inmueble===inm);
+  const svcs=DB.servicios.filter(s=>s.inmueble===inm&&inCartera(s));
   const deudaTotal=svcs.reduce((s,sv)=>s+Math.max(0,getServicioBalance(sv.id)),0);
   // Obras del inmueble
-  const obras=DB.obras.filter(o=>o.inmueble===inm).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+  const obras=DB.obras.filter(o=>o.inmueble===inm&&inCartera(o)).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
   // Incidentes
   const incidentesInm=DB.incidentes.filter(i=>{
+    if(!inCartera(i))return false;
     const lugarLower=(i.lugar||'').toLowerCase();
     const inmLower=inm.toLowerCase();
     return lugarLower.includes(inmLower)||inmLower.includes(lugarLower);
   }).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
   const incActivos=incidentesInm.filter(x=>!x.resuelto);
   // Inspecciones
-  const inspecciones=DB.inspecciones.filter(x=>x.inmueble===inm).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+  const inspecciones=DB.inspecciones.filter(x=>x.inmueble===inm&&inCartera(x)).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
   // Otros ingresos
-  const otrosIng=DB.otros_ingresos.filter(o=>o.inmueble===inm).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+  const otrosIng=DB.otros_ingresos.filter(o=>o.inmueble===inm&&inCartera(o)).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
 
   let html=`<div class="ms" style="max-height:96vh"><div class="mh"></div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:8px">
@@ -1219,7 +1308,7 @@ function renderGastos(){
     <span class="chip${rangeMode==='mes'?' on':''}" onclick="rangeMode='mes';renderCon()">Este mes</span>
     <span class="chip${rangeMode==='custom'?' on':''}" onclick="openCustomRange()">📅 Personalizado</span>
     </div>`;
-  const gs=DB.gastos.filter(g=>{if(!g.fecha)return false;const d=new Date(g.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;}).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  const gs=DB.gastos.filter(g=>{if(!inCartera(g))return false;if(!g.fecha)return false;const d=new Date(g.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;}).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
   const total=gs.reduce((s,g)=>s+Number(g.monto),0);
   // Por categoría
   const porCat={};
@@ -1351,12 +1440,12 @@ function renderResumen(){
     <span class="chip${rangeMode==='sem_pas'?' on':''}" onclick="rangeMode='sem_pas';renderCon()">Sem. pasada</span>
     <span class="chip${rangeMode==='mes'?' on':''}" onclick="rangeMode='mes';renderCon()">Este mes</span>
     <span class="chip${rangeMode==='custom'?' on':''}" onclick="openCustomRange()">📅 Personalizado</span></div>`;
-  const pagos=DB.pagos.filter(p=>{if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
-  const otros=DB.otros_ingresos.filter(o=>{if(!o.fecha)return false;const d=new Date(o.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
+  const pagos=DB.pagos.filter(p=>{if(!inCartera(p))return false;if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
+  const otros=DB.otros_ingresos.filter(o=>{if(!inCartera(o))return false;if(!o.fecha)return false;const d=new Date(o.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
   const ingRenta=pagos.reduce((s,p)=>s+Number(p.monto),0);
   const ingOtros=otros.reduce((s,o)=>s+Number(o.monto),0);
   const ingresos=ingRenta+ingOtros;
-  const gs=DB.gastos.filter(g=>{if(!g.fecha)return false;const d=new Date(g.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
+  const gs=DB.gastos.filter(g=>{if(!inCartera(g))return false;if(!g.fecha)return false;const d=new Date(g.fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;});
   const gastos=gs.reduce((s,g)=>s+Number(g.monto),0);
   const neto=ingresos-gastos;
   const porCat={};
@@ -1529,8 +1618,8 @@ function exportExcelMes(){
   try{
     console.log('[Excel] Iniciando export. curMes=',curMes,'curAnio=',curAnio,'total DB.inquilinos=',DB.inquilinos.length);
     if(typeof XLSX==='undefined'){snack('⚠️ Librería XLSX no cargada. Refresca la app.');return;}
-    const act=DB.inquilinos.filter(i=>i.estado==='activo');
-    console.log('[Excel] Inquilinos activos:',act.length);
+    const act=DB.inquilinos.filter(i=>i.estado==='activo'&&inCartera(i));
+    console.log('[Excel] Inquilinos activos en cartera:',act.length);
     if(act.length===0){
       const estados=[...new Set(DB.inquilinos.map(i=>i.estado||'(sin estado)'))];
       snack('⚠️ Sin activos. Estados encontrados: '+estados.join(', '));
@@ -1606,8 +1695,8 @@ function exportExcelMes(){
 
 function exportExcelMovs(){
   const r=getRange(rangeMode);
-  const pagosFiltered=DB.pagos.filter(p=>{if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);return d>=r.ini&&d<=r.fin;});
-  const gastosFiltered=DB.gastos.filter(g=>{const d=new Date(g.fecha);return d>=r.ini&&d<=r.fin;});
+  const pagosFiltered=DB.pagos.filter(p=>{if(!inCartera(p))return false;if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);return d>=r.ini&&d<=r.fin;});
+  const gastosFiltered=DB.gastos.filter(g=>{if(!inCartera(g))return false;const d=new Date(g.fecha);return d>=r.ini&&d<=r.fin;});
   if(pagosFiltered.length===0&&gastosFiltered.length===0){
     snack(`⚠️ Sin movimientos en ${r.label}. Cambia el periodo.`);
     return;
@@ -1671,7 +1760,7 @@ function renderInq(){
 function renderInqList(){
   const q=(document.getElementById("search-inq")?.value||"").toLowerCase();
   // Filter inquilinos
-  let act=DB.inquilinos.filter(i=>i.estado==='activo');
+  let act=DB.inquilinos.filter(i=>i.estado==='activo'&&inCartera(i));
   if(propFilter!=='todos')act=act.filter(i=>i.propietario===propFilter);
   if(q)act=act.filter(i=>i.nombre.toLowerCase().includes(q)||i.inmueble.toLowerCase().includes(q));
 
@@ -1888,12 +1977,13 @@ const TIPOS_SVC={cfe:{n:'CFE',i:'⚡',url:'https://app.cfe.mx/Aplicaciones/CCFE/
   otro:{n:'Servicio',i:'🔧',url:''}};
 
 function renderSvc(){
-  const inmuebles=[...new Set([...DB.servicios.map(s=>s.inmueble),...DB.inquilinos.filter(i=>i.estado==='activo').map(i=>i.inmueble)])].filter(Boolean).sort();
+  const servicios=DB.servicios.filter(inCartera);
+  const inmuebles=[...new Set([...servicios.map(s=>s.inmueble),...DB.inquilinos.filter(i=>i.estado==='activo'&&inCartera(i)).map(i=>i.inmueble)])].filter(Boolean).sort();
   let html='';
   // Header con total de deuda
-  const totalDeuda=DB.servicios.reduce((s,sv)=>s+Math.max(0,getServicioBalance(sv.id)),0);
-  const totalReciboAcum=DB.recibos_servicios.reduce((s,r)=>s+Number(r.monto||0),0);
-  const totalPagadoAcum=DB.pagos_servicios.reduce((s,p)=>s+Number(p.monto||0),0);
+  const totalDeuda=servicios.reduce((s,sv)=>s+Math.max(0,getServicioBalance(sv.id)),0);
+  const totalReciboAcum=DB.recibos_servicios.filter(inCartera).reduce((s,r)=>s+Number(r.monto||0),0);
+  const totalPagadoAcum=DB.pagos_servicios.filter(inCartera).reduce((s,p)=>s+Number(p.monto||0),0);
   html+=`<div class="summary-card" style="margin-bottom:14px">
     <div style="text-align:center">
       <div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Deuda total acumulada</div>
@@ -1907,14 +1997,14 @@ function renderSvc(){
 
   html+=`<button class="btn bg bfu" onclick="openServicioForm()" style="margin-bottom:14px">+ Agregar servicio</button>`;
 
-  if(!DB.servicios.length){
+  if(!servicios.length){
     html+=`<div class="es"><div class="ei">⚡</div><div class="et">Sin servicios registrados<br><br>Agrega predial, agua, luz, gas por cada inmueble.</div></div>`;
     document.getElementById('v-svc').innerHTML=html;return;
   }
 
   // Agrupar servicios por inmueble
   const grupos={};
-  DB.servicios.forEach(s=>{const inm=s.inmueble||'(sin inmueble)';if(!grupos[inm])grupos[inm]=[];grupos[inm].push(s);});
+  servicios.forEach(s=>{const inm=s.inmueble||'(sin inmueble)';if(!grupos[inm])grupos[inm]=[];grupos[inm].push(s);});
 
   Object.keys(grupos).sort().forEach(inm=>{
     const svcs=grupos[inm];
@@ -2200,8 +2290,8 @@ function delPagoServicio(id){
 
 // ─── REPORTES (vista principal) ──────────────────
 function renderRep(){
-  const incActivos=DB.incidentes.filter(i=>!i.resuelto);
-  const incResueltos=DB.incidentes.filter(i=>i.resuelto);
+  const incActivos=DB.incidentes.filter(i=>!i.resuelto&&inCartera(i));
+  const incResueltos=DB.incidentes.filter(i=>i.resuelto&&inCartera(i));
   document.getElementById('v-rep').innerHTML=`
     <div class="st">📧 Resumen ejecutivo</div>
     <div class="ro" onclick="openDailySummary()"><div style="font-size:26px">📧</div><div><div class="rtit">Resumen del día por correo/WA</div><div class="rdesc">Cobranza, gastos, incidentes, obras — listo para enviar</div></div></div>
@@ -2225,7 +2315,7 @@ function renderRep(){
     <div class="ro" onclick="genPDFInspeccionVacia()"><div style="font-size:26px">📥</div><div><div class="rtit">Descargar formato en blanco</div><div class="rdesc">PDF para imprimir y llenar a mano</div></div></div>
     <div class="ro" onclick="openInspeccionForm()"><div style="font-size:26px">✏️</div><div><div class="rtit">Nueva inspección interactiva</div><div class="rdesc">Llenar aquí · calificación automática</div></div></div>
     ${(()=>{
-      const insps=DB.inspecciones.slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+      const insps=DB.inspecciones.filter(inCartera).slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
       if(insps.length===0)return'';
       const showAll=expandedInm['__insp_hist'];
       const recent=insps.slice(0,3);
@@ -2246,7 +2336,7 @@ function renderRep(){
     })()}
     
     ${(()=>{
-      const obras=DB.obras.slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+      const obras=DB.obras.filter(inCartera).slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
       if(obras.length===0)return'';
       const showAll=expandedInm['__obras_hist'];
       const recent=obras.slice(0,3);
@@ -2282,6 +2372,9 @@ function renderRep(){
     <input class="fi" id="rep-search" placeholder="🔍 Buscar inquilino..." oninput="renderRepInqList()" style="margin-bottom:10px">
     <div id="rep-inq-list"></div>
     
+    <div class="st" style="margin-top:14px">📁 Carteras (multi-cliente)</div>
+    <div class="ro" onclick="openCarteraPicker()"><div style="font-size:26px">📁</div><div><div class="rtit">Administrar carteras</div><div class="rdesc">Cambiar de cartera activa, agregar cliente nuevo, editar</div></div></div>
+
     <div class="st" style="margin-top:14px">☁️ Cuenta</div>
     <div class="ro" onclick="signOutCloud()" id="logout-row" style="${currentUser?'':'display:none'}"><div style="font-size:24px">👤</div><div><div class="rtit">${currentUser?.email||'No conectado'}</div><div class="rdesc">Cerrar sesión / cambiar cuenta</div></div></div>
     <div class="st" style="margin-top:14px">⚙️ Datos</div>
@@ -3003,20 +3096,20 @@ function buildDailySummary(fecha){
   const d=new Date(fecha);d.setHours(0,0,0,0);
   const dNext=new Date(d.getTime()+86400000);
   const inRange=(dateStr)=>{if(!dateStr)return false;const dd=new Date(dateStr);if(isNaN(dd))return false;return dd>=d&&dd<dNext;};
-  const pagos=DB.pagos.filter(p=>p.pagado&&inRange(p.fecha_pago));
-  const otros=DB.otros_ingresos.filter(o=>inRange(o.fecha));
-  const gastos=DB.gastos.filter(g=>inRange(g.fecha));
-  const incidentesNuevos=DB.incidentes.filter(i=>inRange(i.fecha));
-  const incidentesResueltos=DB.incidentes.filter(i=>i.resuelto&&inRange(i.fecha_resolucion));
-  const obras=DB.obras.filter(o=>inRange(o.fecha));
-  const inspecciones=DB.inspecciones.filter(ins=>inRange(ins.fecha));
-  const recibosSvc=DB.recibos_servicios.filter(r=>inRange(r.fecha));
-  const pagosSvc=DB.pagos_servicios.filter(p=>inRange(p.fecha));
+  const pagos=DB.pagos.filter(p=>inCartera(p)&&p.pagado&&inRange(p.fecha_pago));
+  const otros=DB.otros_ingresos.filter(o=>inCartera(o)&&inRange(o.fecha));
+  const gastos=DB.gastos.filter(g=>inCartera(g)&&inRange(g.fecha));
+  const incidentesNuevos=DB.incidentes.filter(i=>inCartera(i)&&inRange(i.fecha));
+  const incidentesResueltos=DB.incidentes.filter(i=>inCartera(i)&&i.resuelto&&inRange(i.fecha_resolucion));
+  const obras=DB.obras.filter(o=>inCartera(o)&&inRange(o.fecha));
+  const inspecciones=DB.inspecciones.filter(ins=>inCartera(ins)&&inRange(ins.fecha));
+  const recibosSvc=DB.recibos_servicios.filter(r=>inCartera(r)&&inRange(r.fecha));
+  const pagosSvc=DB.pagos_servicios.filter(p=>inCartera(p)&&inRange(p.fecha));
   const totalCobrado=pagos.reduce((s,p)=>s+Number(p.monto||0),0);
   const totalOtros=otros.reduce((s,o)=>s+Number(o.monto||0),0);
   const totalGastos=gastos.reduce((s,g)=>s+Number(g.monto||0),0);
   const neto=totalCobrado+totalOtros-totalGastos;
-  const totalActivos=DB.incidentes.filter(i=>!i.resuelto).length;
+  const totalActivos=DB.incidentes.filter(i=>!i.resuelto&&inCartera(i)).length;
   return{fecha:d,pagos,otros,gastos,incidentesNuevos,incidentesResueltos,obras,inspecciones,recibosSvc,pagosSvc,totalCobrado,totalOtros,totalGastos,neto,totalActivos};
 }
 
@@ -3212,6 +3305,132 @@ async function shareDailySummary(fechaStr){
 }
 
 // ─── QUICK ENTRY FAB ─────────────────────────────
+function openCarteraPicker(){
+  const active=getActiveCarteraId();
+  let html=`<div class="ms"><div class="mh"></div>
+    <div class="mt2">📁 Carteras</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:14px">Cambia entre clientes / propietarios. Cada cartera tiene sus datos completamente separados.</div>`;
+  if(DB.carteras.length===0){
+    html+=`<div class="es"><div class="ei">📁</div><div class="et">Sin carteras</div></div>`;
+  }else{
+    DB.carteras.forEach(c=>{
+      const isActive=c.id===active;
+      // Counters (all data of this cartera)
+      const nInm=[...new Set(DB.inquilinos.filter(x=>x.carteraId===c.id).map(x=>x.inmueble))].filter(Boolean).length;
+      const nInq=DB.inquilinos.filter(x=>x.carteraId===c.id&&x.estado==='activo').length;
+      const tipoIcon=c.tipo==='familia'?'🏠':c.tipo==='cliente'?'💼':'📁';
+      html+=`<div onclick="setActiveCartera('${c.id}');closeM()" style="background:${isActive?'var(--gdim)':'var(--s1)'};border:2px solid ${isActive?'var(--gold)':'#222'};border-radius:11px;padding:12px 14px;margin-bottom:8px;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px">${tipoIcon} ${c.nombre}${isActive?' <span style="font-size:9px;color:var(--gold);letter-spacing:1px">· ACTIVA</span>':''}</div>
+            <div style="font-size:10px;color:var(--dim);margin-top:3px">${nInm} inmuebles · ${nInq} inquilinos${c.contacto?' · '+c.contacto:''}</div>
+          </div>
+          <button class="btn bo bsm" onclick="event.stopPropagation();openCarteraForm('${c.id}')" style="font-size:10px;padding:5px 8px">⚙️</button>
+        </div>
+      </div>`;
+    });
+  }
+  html+=`<button class="btn bg bfu" onclick="openCarteraForm()" style="margin-top:10px">+ Nueva cartera</button>
+    <div style="font-size:10px;color:var(--dim);margin-top:12px;text-align:center">Los datos de cada cartera están completamente aislados. Al cambiar de cartera, verás solo sus inmuebles, inquilinos, gastos y reportes.</div>
+    </div>`;
+  modal(html);
+}
+
+function openCarteraForm(id){
+  const c=id?DB.carteras.find(x=>x.id===id):{tipo:'cliente',fecha_inicio:todayISO()};
+  const isDefault=id==='cart_familia';
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">${id?'Editar':'Nueva'} cartera</div>
+    <div class="fg">
+      <label class="fl">Nombre *</label>
+      <input class="fi" id="cart-nombre" value="${c.nombre||''}" placeholder="Ej: Cliente Rodríguez" autofocus>
+    </div>
+    <div class="fg">
+      <label class="fl">Tipo</label>
+      <div class="chip-grid">
+        <div class="cat-chip${c.tipo==='familia'?' on':''}" onclick="setCartTipo('familia')" style="${c.tipo==='familia'?'border-color:var(--gold);background:var(--gdim)':''}">🏠 Familia</div>
+        <div class="cat-chip${c.tipo==='cliente'?' on':''}" onclick="setCartTipo('cliente')" style="${c.tipo==='cliente'?'border-color:var(--gold);background:var(--gdim)':''}">💼 Cliente</div>
+        <div class="cat-chip${c.tipo==='otro'?' on':''}" onclick="setCartTipo('otro')" style="${c.tipo==='otro'?'border-color:var(--gold);background:var(--gdim)':''}">📁 Otro</div>
+      </div>
+      <input type="hidden" id="cart-tipo" value="${c.tipo||'cliente'}">
+    </div>
+    <div class="fg"><label class="fl">Contacto (nombre)</label><input class="fi" id="cart-contacto" value="${c.contacto||''}" placeholder="Ej: Sr. Rodríguez"></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Teléfono</label><input class="fi" id="cart-tel" value="${c.telefono||''}" type="tel"></div>
+      <div class="fg"><label class="fl">Correo</label><input class="fi" id="cart-correo" value="${c.correo||''}" type="email"></div>
+    </div>
+    <div class="fg"><label class="fl">Fecha inicio relación</label><input class="fi" type="date" id="cart-fecha" value="${c.fecha_inicio||todayISO()}"></div>
+    <div class="fg"><label class="fl">Notas</label><textarea class="fi" id="cart-notas" rows="2">${c.notas||''}</textarea></div>
+    <div style="display:flex;gap:8px">
+      ${id&&!isDefault?`<button class="btn bd" onclick="delCartera('${id}')">🗑️ Eliminar</button>`:''}
+      <button class="btn bg bfu" onclick="saveCartera('${id||''}')">Guardar</button>
+    </div>
+    ${isDefault?'<div style="font-size:10px;color:var(--dim);margin-top:8px;text-align:center">Esta es la cartera default y no se puede eliminar. Puedes editarla libremente.</div>':''}
+    </div>`);
+}
+
+function setCartTipo(t){
+  document.getElementById('cart-tipo').value=t;
+  document.querySelectorAll('.chip-grid .cat-chip').forEach(el=>{
+    if(el.textContent.trim().toLowerCase().includes(t)){
+      el.classList.add('on');el.style.borderColor='var(--gold)';el.style.background='var(--gdim)';
+    }else{el.classList.remove('on');el.style.borderColor='#333';el.style.background='';}
+  });
+}
+
+function saveCartera(id){
+  const nombre=document.getElementById('cart-nombre').value.trim();
+  if(!nombre){snack('Falta nombre');return;}
+  const obj={
+    nombre,
+    tipo:document.getElementById('cart-tipo').value,
+    contacto:document.getElementById('cart-contacto').value.trim(),
+    telefono:document.getElementById('cart-tel').value.trim(),
+    correo:document.getElementById('cart-correo').value.trim(),
+    fecha_inicio:document.getElementById('cart-fecha').value,
+    notas:document.getElementById('cart-notas').value.trim()
+  };
+  if(id){
+    Object.assign(DB.carteras.find(x=>x.id===id),obj);
+  }else{
+    const newId='cart_'+uid();
+    DB.carteras.push({id:newId,...obj,creado:nowISO()});
+    // Auto-activate new cartera so user can start using it
+    localStorage.setItem('rentas_active_cartera',newId);
+    updCartBar();
+  }
+  saveDB('carteras');
+  closeM();snack(id?'Cartera actualizada ✓':'Cartera creada ✓ (ahora activa)');
+  rerender();
+}
+
+function delCartera(id){
+  if(id==='cart_familia'){snack('No puedes borrar la cartera default');return;}
+  const c=DB.carteras.find(x=>x.id===id);if(!c)return;
+  const nItems=['inquilinos','pagos','gastos','obras','incidentes','servicios','inmuebles','inspecciones','otros_ingresos','recibos_servicios','pagos_servicios','bitacora'].reduce((s,k)=>s+DB[k].filter(x=>x.carteraId===id).length,0);
+  if(nItems>0){
+    if(!confirm(`⚠️ La cartera "${c.nombre}" tiene ${nItems} registros. Al eliminar la cartera se BORRARÁN TODOS sus datos (inquilinos, pagos, gastos, obras, etc.) y esto NO se puede deshacer.\n\n¿Estás absolutamente seguro?`))return;
+    if(!confirm(`Última confirmación: escribes "sí" mentalmente y borro ${nItems} registros de ${c.nombre}. ¿Proceder?`))return;
+    // Delete all data
+    ['inquilinos','pagos','gastos','obras','incidentes','servicios','inmuebles','inspecciones','otros_ingresos','recibos_servicios','pagos_servicios','bitacora'].forEach(k=>{
+      DB[k]=DB[k].filter(x=>x.carteraId!==id);
+      saveDB(k);
+    });
+  }else{
+    if(!confirm(`¿Eliminar cartera vacía "${c.nombre}"?`))return;
+  }
+  DB.carteras=DB.carteras.filter(x=>x.id!==id);
+  saveDB('carteras');
+  // If active cartera was deleted, switch to default
+  if(getActiveCarteraId()===id||!getActiveCarteraId()){
+    localStorage.setItem('rentas_active_cartera','cart_familia');
+    updCartBar();
+  }
+  closeM();snack('Cartera eliminada');
+  rerender();
+}
+
+// ─── QUICK ENTRY FAB ─────────────────────────────
 function openQuickEntry(){
   modal(`<div class="ms" style="max-height:70vh">
     <div class="mh"></div>
@@ -3245,7 +3464,7 @@ function openQuickEntry(){
 // ─── BITÁCORA DEL DÍA ────────────────────────────
 function openBitacora(fechaStr){
   const fecha=fechaStr||todayISO();
-  const items=DB.bitacora.filter(b=>b.fecha===fecha).sort((a,b)=>{
+  const items=DB.bitacora.filter(b=>b.fecha===fecha&&inCartera(b)).sort((a,b)=>{
     if(a.hora&&!b.hora)return -1;
     if(!a.hora&&b.hora)return 1;
     if(a.hora&&b.hora)return a.hora.localeCompare(b.hora);
@@ -3357,7 +3576,7 @@ function delBitacoraItem(id){
 
 function getBitacoraHoyResumen(){
   const hoy=todayISO();
-  const items=DB.bitacora.filter(b=>b.fecha===hoy);
+  const items=DB.bitacora.filter(b=>b.fecha===hoy&&inCartera(b));
   const pendActivos=items.filter(x=>!x.hora&&!x.hecho);
   const progActivos=items.filter(x=>x.hora&&!x.hecho).sort((a,b)=>a.hora.localeCompare(b.hora));
   const hechos=items.filter(x=>x.hecho).length;
@@ -3587,9 +3806,9 @@ function genPDFConciliacionConfig(){
 function genPDFConciliacion(incIng=true,incGas=true,incDet=true){
   const r=getRange(rangeMode);
   const doc=pdfBase('CONCILIACIÓN — '+r.label.toUpperCase());
-  const pagos=DB.pagos.filter(p=>{if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);return d>=r.ini&&d<=r.fin;});
+  const pagos=DB.pagos.filter(p=>{if(!inCartera(p))return false;if(!p.fecha_pago||!p.pagado)return false;const d=new Date(p.fecha_pago);return d>=r.ini&&d<=r.fin;});
   const ingresos=pagos.reduce((s,p)=>s+Number(p.monto),0);
-  const gs=DB.gastos.filter(g=>{const d=new Date(g.fecha);return d>=r.ini&&d<=r.fin;});
+  const gs=DB.gastos.filter(g=>{if(!inCartera(g))return false;const d=new Date(g.fecha);return d>=r.ini&&d<=r.fin;});
   const gastos=gs.reduce((s,g)=>s+Number(g.monto),0);
   const neto=ingresos-gastos;
   let y=50;
@@ -3659,8 +3878,8 @@ function genPDFConciliacion(incIng=true,incGas=true,incDet=true){
 
 function genPDFResumen(){
   const doc=pdfBase('RESUMEN — '+MF[curMes-1].toUpperCase()+' '+curAnio);
-  const act=DB.inquilinos.filter(i=>i.estado==='activo');
-  const cobMes=DB.pagos.filter(p=>p.mes===curMes&&p.anio===curAnio&&p.pagado).reduce((s,p)=>s+Number(p.monto),0);
+  const act=DB.inquilinos.filter(i=>i.estado==='activo'&&inCartera(i));
+  const cobMes=DB.pagos.filter(p=>p.mes===curMes&&p.anio===curAnio&&p.pagado&&inCartera(p)).reduce((s,p)=>s+Number(p.monto),0);
   const totalEsp=act.reduce((s,i)=>s+Number(i.renta),0);
   let y=50;
   doc.setFillColor(248,248,248);doc.rect(14,y-4,182,40,'F');
@@ -3691,7 +3910,7 @@ function genPDFResumen(){
 }
 
 function genPDFVenc(){
-  const venc=DB.inquilinos.filter(i=>i.estado==='activo'&&isLate(i.id,HM,HA));
+  const venc=DB.inquilinos.filter(i=>i.estado==='activo'&&inCartera(i)&&isLate(i.id,HM,HA));
   const doc=pdfBase('RENTAS VENCIDAS — '+MF[HM-1].toUpperCase()+' '+HA);
   let y=50;
   if(!venc.length){doc.setTextColor(40,130,70);doc.setFontSize(14);doc.setFont('helvetica','bold');doc.text('✓ No hay rentas vencidas.',14,y);}
@@ -3800,6 +4019,7 @@ function genPDFIncidente(id){
 function init(){
   loadDB(); // load from localStorage first (works offline)
   document.getElementById("splash").style.display="none";
+  updCartBar();
   renderDash();updNotif();
   // Firebase auth handler will then upgrade to cloud sync if user is logged in
 }
