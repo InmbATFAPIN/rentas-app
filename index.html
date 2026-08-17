@@ -222,26 +222,20 @@ textarea.fi{resize:vertical;min-height:60px}
     <div><div class="hdr-t" id="hdr-t">Panel</div><div class="hdr-s" id="hdr-s"></div></div>
     <div id="hdr-a" style="display:flex;gap:7px"></div>
   </header>
-  <div id="cartera-bar" onclick="openCarteraPicker()" style="display:flex;align-items:center;gap:8px;padding:7px 16px;background:linear-gradient(90deg,#1a1a1a,#171717);border-bottom:1px solid #2a2211;font-size:11px;font-weight:600;color:var(--gold);cursor:pointer;letter-spacing:.3px">
-    <span style="font-size:14px">📁</span>
-    <span id="cartera-name">Oficina Familiar</span>
-    <span style="margin-left:auto;color:var(--dim);font-size:10px">tocar para cambiar ▼</span>
-  </div>
+  <div id="cartera-bar" style="display:none"></div>
   <main class="mc">
     <div id="v-dash" class="view on"></div>
     <div id="v-con" class="view"></div>
     <div id="v-inq" class="view"></div>
     <div id="v-det" class="view"></div>
-    <div id="v-svc" class="view"></div>
     <div id="v-rep" class="view"></div>
   </main>
   <button class="fab" id="fab-quick" onclick="openQuickEntry()" aria-label="Registro rápido"><svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M12 5v14M5 12h14"/></svg></button>
   <nav class="nav">
-    <button class="ni on" id="n-dash" onclick="go('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Panel<span class="nd" id="nd-dash"></span></button>
-    <button class="ni" id="n-con" onclick="go('con')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="6" cy="6" r="2" fill="currentColor"/><circle cx="14" cy="12" r="2" fill="currentColor"/><circle cx="9" cy="18" r="2" fill="currentColor"/></svg>Conciliación</button>
-    <button class="ni" id="n-inq" onclick="go('inq')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9v.01M9 12v.01M9 15v.01M9 18v.01M15 9v.01M15 12v.01M15 15v.01M15 18v.01"/></svg>Inmuebles</button>
-    <button class="ni" id="n-svc" onclick="go('svc')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Servicios</button>
-    <button class="ni" id="n-rep" onclick="go('rep')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Reportes</button>
+    <button class="ni on" id="n-dash" onclick="go('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 6H4M20 12H4M20 18H4"/><circle cx="18" cy="6" r="2" fill="currentColor"/><circle cx="6" cy="12" r="2" fill="currentColor"/><circle cx="18" cy="18" r="2" fill="currentColor"/></svg>Directorio<span class="nd" id="nd-dash"></span></button>
+    <button class="ni" id="n-inq" onclick="go('inq')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9v.01M9 12v.01M9 15v.01M9 18v.01M15 9v.01M15 12v.01M15 15v.01M15 18v.01"/></svg>Propietarios</button>
+    <button class="ni" id="n-con" onclick="go('con')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Gestión</button>
+    <button class="ni" id="n-rep" onclick="go('rep')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Back office</button>
   </nav>
   <button class="fab" id="fab" onclick="handleFAB()">+</button>
   <div id="modal-root"></div>
@@ -249,7 +243,7 @@ textarea.fi{resize:vertical;min-height:60px}
 </div>
 <script>
 // ─── State ─────────────────────────────────────────────
-let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[]};
+let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[]};
 let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null,propFilter='todos';
 const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MF=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -347,7 +341,7 @@ let cloudUnsubs = [];
 let saveTimers = {};
 let cloudStateNow = 'offline';
 let cloudMsgNow = 'Sin sincronización';
-const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras'];
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios'];
 const PHOTO_COLLS = ['obras','incidentes','inspecciones']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
@@ -563,15 +557,17 @@ async function cloudSaveNow(k) {
 // ─── Storage ───────────────────────────────────────────
 function loadDB(){
   let firstRun=true;
-  ["inquilinos","pagos","servicios","gastos","obras","incidentes","otros_ingresos","inmuebles","inspecciones","recibos_servicios","pagos_servicios","bitacora","carteras"].forEach(k=>{
+  ["inquilinos","pagos","servicios","gastos","obras","incidentes","otros_ingresos","inmuebles","inspecciones","recibos_servicios","pagos_servicios","bitacora","carteras","propietarios"].forEach(k=>{
     try{const v=localStorage.getItem("rentas_"+k);if(v){DB[k]=JSON.parse(v);if(k==="inquilinos"&&DB[k].length>0)firstRun=false;}}catch(e){}
   });
   // Migration: rename propiedad -> inmueble in servicios
   DB.servicios.forEach(s=>{
     if(s.propiedad&&!s.inmueble){s.inmueble=s.propiedad;delete s.propiedad;}
   });
-  // Migration: ensure default cartera exists and all items belong to it
+  // Migration: ensure default cartera exists (backward compat)
   migrateToCarteras();
+  // Migration: propietarios entities + link all data to them
+  migrateToPropietarios();
   if(firstRun){
     DB.inquilinos=SEED.inquilinos;
     DB.pagos=SEED.pagos.map(p=>({...p,id:uid()}));
@@ -592,62 +588,126 @@ function saveDB(k){
 }
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5)}
 
-// ─── CARTERAS (multi-cliente) ─────────────────────────
+// ─── PROPIETARIOS (entidades principales) ─────────────
+function getPropietario(id){return DB.propietarios.find(p=>p.id===id);}
+function getPropietarioByName(nombre){
+  if(!nombre)return null;
+  const n=nombre.trim().toUpperCase();
+  return DB.propietarios.find(p=>(p.nombre||'').trim().toUpperCase()===n);
+}
+function getPropietarioInmuebles(propId){
+  return DB.inmuebles.filter(i=>i.propietarioId===propId);
+}
+function getPropietarioInquilinos(propId,soloActivos){
+  let list=DB.inquilinos.filter(i=>i.propietarioId===propId);
+  if(soloActivos)list=list.filter(i=>i.estado==='activo');
+  return list;
+}
+function migrateToPropietarios(){
+  // 1. Create propietario entities from existing inquilino.propietario strings
+  const nombres=[...new Set(DB.inquilinos.map(i=>(i.propietario||'').trim()).filter(Boolean))];
+  nombres.forEach(nombre=>{
+    const nUp=nombre.toUpperCase();
+    const id='prop_'+nUp.toLowerCase().replace(/[^a-z0-9]/g,'_');
+    if(!DB.propietarios.find(p=>p.id===id||(p.nombre||'').toUpperCase()===nUp)){
+      DB.propietarios.push({
+        id,nombre:nUp,contacto:'',telefono:'',correo:'',
+        notas:'Migrado desde datos previos',
+        fecha_inicio:todayISO(),creado:nowISO()
+      });
+    }
+  });
+  // 2. inquilinos: string propietario -> propietarioId
+  DB.inquilinos.forEach(i=>{
+    if(i.propietario&&!i.propietarioId){
+      const p=getPropietarioByName(i.propietario);
+      if(p)i.propietarioId=p.id;
+    }
+  });
+  // 3. inmuebles: derive propietarioId from tenants + create missing inmueble entities
+  const inmMap={};
+  DB.inquilinos.forEach(i=>{
+    if(i.inmueble&&i.propietarioId&&!inmMap[i.inmueble]){
+      inmMap[i.inmueble]=i.propietarioId;
+    }
+  });
+  Object.entries(inmMap).forEach(([nom,propId])=>{
+    let inmObj=DB.inmuebles.find(x=>x.nombre===nom);
+    if(!inmObj){
+      inmObj={id:'inm_'+nom.toLowerCase().replace(/[^a-z0-9]/g,'_'),nombre:nom,notas:'',creado:nowISO()};
+      DB.inmuebles.push(inmObj);
+    }
+    if(!inmObj.propietarioId)inmObj.propietarioId=propId;
+    if(!inmObj.id)inmObj.id='inm_'+(inmObj.nombre||'').toLowerCase().replace(/[^a-z0-9]/g,'_');
+  });
+  // 4. Link inquilinos to inmueble entity (inmuebleId)
+  DB.inquilinos.forEach(i=>{
+    if(i.inmueble&&!i.inmuebleId){
+      const inm=DB.inmuebles.find(x=>x.nombre===i.inmueble);
+      if(inm)i.inmuebleId=inm.id;
+    }
+  });
+  // 5. gastos, obras, incidentes, inspecciones, otros_ingresos: derive propietarioId from inmueble
+  ['gastos','obras','otros_ingresos','inspecciones'].forEach(k=>{
+    DB[k].forEach(x=>{
+      if(x.inmueble&&!x.propietarioId){
+        const inm=DB.inmuebles.find(y=>y.nombre===x.inmueble);
+        if(inm&&inm.propietarioId)x.propietarioId=inm.propietarioId;
+      }
+    });
+  });
+  // 6. incidentes: try to match by lugar (inmueble name)
+  DB.incidentes.forEach(x=>{
+    if(!x.propietarioId&&x.lugar){
+      const lugarLow=x.lugar.toLowerCase();
+      const inm=DB.inmuebles.find(y=>lugarLow.includes((y.nombre||'').toLowerCase())||(y.nombre||'').toLowerCase().includes(lugarLow));
+      if(inm&&inm.propietarioId)x.propietarioId=inm.propietarioId;
+      else if(x.inqId){
+        const inq=DB.inquilinos.find(y=>y.id===x.inqId);
+        if(inq&&inq.propietarioId)x.propietarioId=inq.propietarioId;
+      }
+    }
+  });
+  // 7. servicios: derive from inmueble
+  DB.servicios.forEach(s=>{
+    if(s.inmueble&&!s.propietarioId){
+      const inm=DB.inmuebles.find(y=>y.nombre===s.inmueble);
+      if(inm&&inm.propietarioId)s.propietarioId=inm.propietarioId;
+    }
+  });
+  // Save migrated collections
+  ['inquilinos','inmuebles','gastos','obras','incidentes','otros_ingresos','inspecciones','servicios','propietarios'].forEach(k=>{
+    saveDBLocal(k);cloudSaveDebounced(k);
+  });
+}
+
+// ─── CARTERAS (deprecado — cartera bar oculta, sin filtro activo) ─
 function getActiveCarteraId(){
   const stored=localStorage.getItem('rentas_active_cartera');
   if(stored&&DB.carteras.find(c=>c.id===stored))return stored;
   return DB.carteras[0]?.id||null;
 }
-function getActiveCartera(){
-  const id=getActiveCarteraId();
-  return DB.carteras.find(c=>c.id===id)||null;
-}
-function setActiveCartera(id){
-  const cart=DB.carteras.find(c=>c.id===id);
-  if(!cart)return;
-  localStorage.setItem('rentas_active_cartera',id);
-  snack('📁 Cartera: '+cart.nombre);
-  updCartBar();
-  updNotif();
-  rerender();
-}
-function inCartera(item){
-  const id=getActiveCarteraId();
-  if(!id)return true; // no cartera system yet
-  return item&&item.carteraId===id;
-}
+function getActiveCartera(){return DB.carteras[0]||null;}
+function setActiveCartera(id){}
+function inCartera(item){return true;} // deprecated - siempre true
 function migrateToCarteras(){
-  // Ensure default cartera exists
+  // Backward compat: crea cartera default si no existe
   if(DB.carteras.length===0){
-    DB.carteras.push({
-      id:'cart_familia',
-      nombre:'Oficina Familiar',
-      tipo:'familia',
-      contacto:'',
-      correo:'',
-      telefono:'',
-      notas:'Cartera principal (default)',
-      fecha_inicio:todayISO(),
-      creado:nowISO()
-    });
+    DB.carteras.push({id:'cart_familia',nombre:'Default',tipo:'familia',contacto:'',correo:'',telefono:'',notas:'',fecha_inicio:todayISO(),creado:nowISO()});
     saveDBLocal('carteras');
-    cloudSaveDebounced('carteras');
   }
-  // Assign default cartera to all items without carteraId
   const defaultId=DB.carteras[0].id;
   ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora'].forEach(k=>{
     let migrated=0;
     (DB[k]||[]).forEach(item=>{
       if(item&&typeof item==='object'&&!item.carteraId){item.carteraId=defaultId;migrated++;}
     });
-    if(migrated>0){saveDBLocal(k);cloudSaveDebounced(k);}
+    if(migrated>0)saveDBLocal(k);
   });
 }
 function updCartBar(){
-  const el=document.getElementById('cartera-name');
-  if(el){const c=getActiveCartera();el.textContent=c?.nombre||'—';}
-  const c2=document.getElementById('cartera-bar');
-  if(c2){const c=getActiveCartera();c2.title='Cartera activa: '+(c?.nombre||'ninguna');}
+  const el=document.getElementById('cartera-bar');
+  if(el)el.style.display='none';
 }
 function rerender(){
   if(curView==='dash')renderDash();
@@ -656,10 +716,8 @@ function rerender(){
   else if(curView==='svc')renderSvc();
   else if(curView==='rep')renderRep();
   else if(curView==='det'&&detTenant){
-    // Check if tenant still visible in active cartera
     detTenant=DB.inquilinos.find(x=>x.id===detTenant.id);
-    if(!detTenant||!inCartera(detTenant))go('inq');
-    else renderDet();
+    if(!detTenant)go('inq');else renderDet();
   }
 }
 
@@ -777,22 +835,20 @@ function go(v){
     hdra.innerHTML=`<button class="btn bo bsm" onclick="openEditTenant('${detTenant?.id}')">✏️</button>`;
     renderDet();return;
   }
-  const vm={dash:"v-dash",con:"v-con",inq:"v-inq",svc:"v-svc",rep:"v-rep"};
-  const nm={dash:"n-dash",con:"n-con",inq:"n-inq",svc:"n-svc",rep:"n-rep"};
-  const tt={dash:"Panel",con:"Conciliación",inq:"Inmuebles",svc:"Servicios",rep:"Reportes"};
+  const vm={dash:"v-dash",con:"v-con",inq:"v-inq",rep:"v-rep"};
+  const nm={dash:"n-dash",con:"n-con",inq:"n-inq",rep:"n-rep"};
+  const tt={dash:"Directorio",con:"Gestión",inq:"Propietarios",rep:"Back office"};
   document.getElementById(vm[v])?.classList.add("on");
   document.getElementById(nm[v])?.classList.add("on");
   document.getElementById("hdr-t").textContent=tt[v]||"";
   document.getElementById("hdr-s").textContent="";
   if(v==="inq")fab.style.display="flex";
-  if(v==="svc")fab.style.display="flex";
   if(v==="con"&&conSub==='gastos')fab.style.display="flex";
-  ({dash:renderDash,con:renderCon,inq:renderInq,svc:renderSvc,rep:renderRep})[v]?.();
+  ({dash:renderDash,con:renderCon,inq:renderInq,rep:renderRep})[v]?.();
   updNotif();
 }
 function handleFAB(){
   if(curView==="inq")openEditTenant();
-  else if(curView==="svc")openAddService();
   else if(curView==="con"&&conSub==='gastos')openAddGasto();
 }
 function updNotif(){
@@ -801,78 +857,371 @@ function updNotif(){
 }
 
 // ─── Dashboard ─────────────────────────────────────────
+// ─── DIRECTORIO (antes Panel) ─────────────────
 function renderDash(){
-  const act=DB.inquilinos.filter(i=>i.estado==="activo"&&inCartera(i));
-  const venc=act.filter(i=>isLate(i.id,HM,HA));
-  const pagds=act.filter(i=>isPagado(i.id,HM,HA));
-  const cobMes=DB.pagos.filter(p=>p.mes===HM&&p.anio===HA&&p.pagado&&inCartera(p)).reduce((s,p)=>s+Number(p.monto),0);
-  const totalEsp=act.reduce((s,i)=>s+Number(i.renta||0),0);
-  const pct=totalEsp>0?Math.round(cobMes/totalEsp*100):0;
-  const gMes=DB.gastos.filter(g=>{if(!inCartera(g))return false;const d=new Date(g.fecha);return d.getMonth()+1===HM&&d.getFullYear()===HA}).reduce((s,g)=>s+Number(g.monto),0);
-  const neto=cobMes-gMes;
-  document.getElementById("v-dash").innerHTML=`
-    <div id="dash-cloud-card" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="snack('☁️ '+cloudMsgNow)"></div>
-    <div class="summary-card">
-      <div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">${MF[HM-1]} ${HA}</div>
-      <div style="font-family:'Playfair Display',serif;font-size:30px;color:var(--gold);margin-top:4px">${fmt(cobMes)}</div>
-      <div style="font-size:11px;color:var(--dim);margin-top:2px">de ${fmt(totalEsp)} esperados (${pct}%)</div>
-      <div class="progress-bar"><div style="width:${pct}%"></div></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:14px;text-align:center">
-        <div><div style="font-size:9px;color:var(--dim)">INGRESOS</div><div style="color:var(--g);font-weight:700">${fmt(cobMes)}</div></div>
-        <div><div style="font-size:9px;color:var(--dim)">GASTOS</div><div style="color:var(--r);font-weight:700">${fmt(gMes)}</div></div>
-        <div><div style="font-size:9px;color:var(--dim)">NETO</div><div style="color:${neto>=0?'var(--g)':'var(--r)'};font-weight:700">${fmt(neto)}</div></div>
-      </div>
+  // Get pago breakdown by method for propietario
+  const getPropData=(propId)=>{
+    const act=DB.inquilinos.filter(i=>i.estado==='activo'&&i.propietarioId===propId);
+    const inqIds=act.map(i=>i.id);
+    const pagosMes=DB.pagos.filter(p=>p.pagado&&p.mes===HM&&p.anio===HA&&inqIds.includes(p.iid));
+    let efectivo=0,deposito=0;
+    pagosMes.forEach(p=>{
+      const m=(p.metodo||'efectivo').toLowerCase();
+      if(m==='efectivo')efectivo+=Number(p.monto||0);
+      else deposito+=Number(p.monto||0); // transferencia, deposito, cheque -> agrupamos como "depósito"
+    });
+    const cobrado=efectivo+deposito;
+    const totalEsp=act.reduce((s,i)=>s+Number(i.renta||0),0);
+    const inqPagados=act.filter(i=>isPagado(i.id,HM,HA));
+    const inqVenc=act.filter(i=>isLate(i.id,HM,HA));
+    // Vencido (dinero) = suma renta esperada de vencidos
+    const montoVencido=inqVenc.reduce((s,i)=>s+Number(i.renta||0),0);
+    const pendSinVencer=Math.max(0,totalEsp-cobrado-montoVencido);
+    const pctCobrado=totalEsp>0?Math.round(cobrado/totalEsp*100):0;
+    const inmCount=[...new Set(act.map(i=>i.inmueble))].filter(Boolean).length;
+    return{efectivo,deposito,cobrado,totalEsp,pctCobrado,montoVencido,pendSinVencer,inqCount:act.length,inqPagados:inqPagados.length,inqVenc:inqVenc.length,inmCount};
+  };
+  // SVG dona chart
+  const dona=(data,size=140)=>{
+    const cx=size/2,cy=size/2,r=size/2-14,stroke=18;
+    const total=Math.max(1,data.efectivo+data.deposito+data.montoVencido+data.pendSinVencer);
+    const segs=[
+      {v:data.efectivo,c:'#5CB87A',l:'Efectivo'},
+      {v:data.deposito,c:'#5B9BD5',l:'Depósito'},
+      {v:data.montoVencido,c:'#E05C5C',l:'Vencido'},
+      {v:data.pendSinVencer,c:'#555',l:'Por cobrar'}
+    ];
+    const C=2*Math.PI*r;
+    let offset=0;
+    let paths='';
+    segs.forEach(s=>{
+      if(s.v<=0)return;
+      const pct=s.v/total;
+      const len=C*pct;
+      paths+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.c}" stroke-width="${stroke}" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})" />`;
+      offset+=len;
+    });
+    return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="display:block;margin:0 auto">
+      ${paths}
+      <text x="${cx}" y="${cy-3}" text-anchor="middle" fill="#fff" font-size="20" font-weight="700" font-family="Playfair Display,serif">${data.pctCobrado}%</text>
+      <text x="${cx}" y="${cy+13}" text-anchor="middle" fill="#888" font-size="9">cobrado</text>
+    </svg>`;
+  };
+
+  let html=`<div id="dash-cloud-card" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="snack('☁️ '+cloudMsgNow)"></div>`;
+
+  // Global summary
+  const allProps=DB.propietarios.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  const totalGlobal=allProps.reduce((s,p)=>s+getPropData(p.id).totalEsp,0);
+  const cobGlobal=allProps.reduce((s,p)=>s+getPropData(p.id).cobrado,0);
+  const pctGlobal=totalGlobal>0?Math.round(cobGlobal/totalGlobal*100):0;
+  html+=`<div class="summary-card" style="margin-bottom:14px">
+    <div style="text-align:center">
+      <div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">${MF[HM-1]} ${HA} · Vista global</div>
+      <div style="font-family:'Playfair Display',serif;font-size:26px;color:var(--gold);margin-top:4px">${fmt(cobGlobal)}</div>
+      <div style="font-size:11px;color:var(--dim);margin-top:2px">de ${fmt(totalGlobal)} esperados · ${pctGlobal}%</div>
+      <div class="progress-bar"><div style="width:${pctGlobal}%"></div></div>
+      <div style="font-size:10px;color:var(--dim);margin-top:8px">${allProps.length} propietario${allProps.length===1?'':'s'}</div>
     </div>
-    <button class="btn bo bfu" onclick="openDailySummary()" style="margin-bottom:14px">📧 Enviar resumen del día</button>
-    ${(()=>{
-      const b=getBitacoraHoyResumen();
-      const proxProg=b.progActivos[0];
-      const totalPend=b.pendActivos.length+b.progActivos.length;
-      if(totalPend===0&&b.hechos===0)return`<div onclick="openBitacora()" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:12px 14px;margin-bottom:14px;cursor:pointer;text-align:center">
-        <div style="font-size:24px;margin-bottom:4px">📅</div>
-        <div style="font-size:12px;color:var(--dim)">Bitácora de hoy vacía</div>
-        <div style="font-size:10px;color:var(--gold);margin-top:4px">+ Agregar pendientes o programados</div>
-      </div>`;
-      return`<div onclick="openBitacora()" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:12px 14px;margin-bottom:14px;cursor:pointer">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-weight:700;font-size:13px">📅 Bitácora de hoy</div>
-          <div style="font-size:10px;color:var(--dim)">${b.hechos>0?b.hechos+' ✓ · ':''}${totalPend} pendiente${totalPend===1?'':'s'}</div>
+  </div>`;
+
+  // Cards per propietario
+  if(allProps.length===0){
+    html+=`<div class="es"><div class="ei">👥</div><div class="et">Sin propietarios<br><br>Crea el primero desde "+ Agregar"</div></div>`;
+  }else{
+    allProps.forEach(p=>{
+      const d=getPropData(p.id);
+      const donaSize=110;
+      html+=`<div onclick="openPropietarioDetail('${p.id}')" style="background:var(--s1);border:1px solid #222;border-radius:12px;padding:14px;margin-bottom:10px;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:15px;color:var(--gold)">👤 ${p.nombre}</div>
+            <div style="font-size:10px;color:var(--dim);margin-top:2px">${d.inmCount} propiedad${d.inmCount===1?'':'es'} · ${d.inqCount} inquilino${d.inqCount===1?'':'s'}</div>
+          </div>
+          <button class="btn bo bsm" onclick="event.stopPropagation();openPropietarioEdit('${p.id}')" style="font-size:10px;padding:4px 8px">⚙️</button>
         </div>
-        ${proxProg?`<div style="background:var(--gdim);border-radius:8px;padding:6px 10px;display:flex;gap:8px;align-items:center">
-          <div style="background:var(--gold);color:#000;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:700;font-family:monospace">${proxProg.hora}</div>
-          <div style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${proxProg.titulo}</div>
-        </div>`:''}
-        ${b.pendActivos.length>0?`<div style="font-size:11px;color:var(--dim);margin-top:6px">☐ ${b.pendActivos.slice(0,2).map(p=>p.titulo.slice(0,40)).join(' · ')}${b.pendActivos.length>2?` +${b.pendActivos.length-2}`:''}</div>`:''}
+        <div style="display:flex;gap:14px;align-items:center">
+          <div style="flex-shrink:0">${dona(d,donaSize)}</div>
+          <div style="flex:1;min-width:0;font-size:11px">
+            <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #1e1e1e"><span style="color:#5CB87A">● Efectivo</span><span style="color:#5CB87A;font-weight:700">${fmt(d.efectivo)}</span></div>
+            <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #1e1e1e"><span style="color:#5B9BD5">● Depósito</span><span style="color:#5B9BD5;font-weight:700">${fmt(d.deposito)}</span></div>
+            <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #1e1e1e"><span style="color:#E05C5C">● Vencido</span><span style="color:#E05C5C;font-weight:700">${fmt(d.montoVencido)}</span></div>
+            <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#888">● Pendiente</span><span style="color:#888;font-weight:700">${fmt(d.pendSinVencer)}</span></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;text-align:center;font-size:10px">
+          <div style="background:var(--s2);padding:6px;border-radius:6px">
+            <div style="color:var(--dim);text-transform:uppercase;letter-spacing:.5px">Esperado</div>
+            <div style="color:var(--gold);font-weight:700;font-size:12px;margin-top:2px">${fmt(d.totalEsp)}</div>
+          </div>
+          <div style="background:var(--s2);padding:6px;border-radius:6px">
+            <div style="color:var(--dim);text-transform:uppercase;letter-spacing:.5px">Cobrado</div>
+            <div style="color:#5CB87A;font-weight:700;font-size:12px;margin-top:2px">${fmt(d.cobrado)}</div>
+          </div>
+          <div style="background:var(--s2);padding:6px;border-radius:6px">
+            <div style="color:var(--dim);text-transform:uppercase;letter-spacing:.5px">Avance</div>
+            <div style="color:${d.pctCobrado>=80?'#5CB87A':d.pctCobrado>=50?'#E0B840':'#E05C5C'};font-weight:700;font-size:12px;margin-top:2px">${d.pctCobrado}%</div>
+          </div>
+          <div style="background:var(--s2);padding:6px;border-radius:6px">
+            <div style="color:var(--dim);text-transform:uppercase;letter-spacing:.5px">Vencidas</div>
+            <div style="color:${d.inqVenc>0?'#E05C5C':'#888'};font-weight:700;font-size:12px;margin-top:2px">${d.inqVenc}</div>
+          </div>
+        </div>
       </div>`;
-    })()}
-    <div class="sg">
-      <div class="sc"><div class="sl">Vencidas</div><div class="sv${venc.length>0?' r':' g'}">${venc.length}</div></div>
-      <div class="sc"><div class="sl">Pagadas</div><div class="sv g">${pagds.length}/${act.length}</div></div>
-      <div class="sc"><div class="sl">Inmuebles</div><div class="sv">${new Set(act.map(i=>i.inmueble)).size}</div></div>
-      <div class="sc"><div class="sl">Por cobrar</div><div class="sv r">${fmt(totalEsp-cobMes)}</div></div>
-    </div>
-    ${venc.length>0?`<div class="st">⚠️ Vencidas (${venc.length})</div>`:''}
-    ${venc.slice(0,5).map(t=>`<div class="ti" onclick="openDet('${t.id}')"><div class="av">${ini(t.nombre)}</div><div class="tn"><div class="tnm">${t.nombre}</div><div class="ts">${t.inmueble}${t.interior?' · '+t.interior:''} · Día ${t.dia}</div></div><div style="text-align:right"><div style="color:var(--r);font-weight:600">${fmt(t.renta)}</div></div></div>`).join('')}
-    ${venc.length>5?`<button class="btn bo bfu bsm" onclick="go('con')">Ver todas en Conciliación →</button>`:''}
-    ${act.length===0?`<div class="es"><div class="ei">🏠</div><div class="et">Sin inquilinos</div></div>`:''}
-  `;
+    });
+  }
+  html+=`<button class="btn bg bfu" onclick="openPropietarioEdit()" style="margin-top:8px">+ Agregar propietario</button>`;
+  document.getElementById("v-dash").innerHTML=html;
   updateDashCloudCard();
 }
 
+// ─── Propietario detail (dona grande + números) ─────
+function openPropietarioDetail(propId){
+  const p=getPropietario(propId);if(!p)return;
+  const act=DB.inquilinos.filter(i=>i.estado==='activo'&&i.propietarioId===propId);
+  const inqIds=act.map(i=>i.id);
+  const pagosMes=DB.pagos.filter(pg=>pg.pagado&&pg.mes===HM&&pg.anio===HA&&inqIds.includes(pg.iid));
+  let efectivo=0,deposito=0;
+  pagosMes.forEach(pg=>{
+    const m=(pg.metodo||'efectivo').toLowerCase();
+    if(m==='efectivo')efectivo+=Number(pg.monto||0);
+    else deposito+=Number(pg.monto||0);
+  });
+  const cobrado=efectivo+deposito;
+  const totalEsp=act.reduce((s,i)=>s+Number(i.renta||0),0);
+  const inqVenc=act.filter(i=>isLate(i.id,HM,HA));
+  const montoVencido=inqVenc.reduce((s,i)=>s+Number(i.renta||0),0);
+  const pendSinVencer=Math.max(0,totalEsp-cobrado-montoVencido);
+  const pctCobrado=totalEsp>0?Math.round(cobrado/totalEsp*100):0;
+  const pctEfe=totalEsp>0?Math.round(efectivo/totalEsp*100):0;
+  const pctDep=totalEsp>0?Math.round(deposito/totalEsp*100):0;
+  const pctVenc=totalEsp>0?Math.round(montoVencido/totalEsp*100):0;
+  const pctPend=totalEsp>0?Math.round(pendSinVencer/totalEsp*100):0;
+  const inmuebles=DB.inmuebles.filter(i=>i.propietarioId===propId);
+
+  // Big dona
+  const size=200,cx=size/2,cy=size/2,r=size/2-24,stroke=28;
+  const total=Math.max(1,efectivo+deposito+montoVencido+pendSinVencer);
+  const segs=[
+    {v:efectivo,c:'#5CB87A'},{v:deposito,c:'#5B9BD5'},
+    {v:montoVencido,c:'#E05C5C'},{v:pendSinVencer,c:'#555'}
+  ];
+  const C=2*Math.PI*r;
+  let offset=0;let paths='';
+  segs.forEach(s=>{
+    if(s.v<=0)return;
+    const len=C*(s.v/total);
+    paths+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.c}" stroke-width="${stroke}" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})" />`;
+    offset+=len;
+  });
+
+  modal(`<div class="ms" style="max-height:96vh"><div class="mh"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div><div class="mt2" style="margin:0">👤 ${p.nombre}</div>
+      <div style="font-size:11px;color:var(--dim);margin-top:2px">${MF[HM-1]} ${HA} · ${inmuebles.length} propiedades · ${act.length} inquilinos</div></div>
+      <button class="btn bo bsm" onclick="closeM();openPropietarioEdit('${propId}')">⚙️</button>
+    </div>
+
+    <div style="text-align:center;margin-bottom:16px">
+      <svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+        ${paths}
+        <text x="${cx}" y="${cy-6}" text-anchor="middle" fill="#fff" font-size="34" font-weight="700" font-family="Playfair Display,serif">${pctCobrado}%</text>
+        <text x="${cx}" y="${cy+14}" text-anchor="middle" fill="#888" font-size="11">cobrado</text>
+      </svg>
+    </div>
+
+    <div style="background:var(--s1);border-radius:11px;padding:12px 14px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e1e1e">
+        <div><span style="color:#5CB87A;font-size:14px">●</span> <span style="font-size:12px">Efectivo</span></div>
+        <div style="text-align:right"><div style="color:#5CB87A;font-weight:700">${fmt(efectivo)}</div><div style="font-size:9px;color:var(--dim)">${pctEfe}%</div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e1e1e">
+        <div><span style="color:#5B9BD5;font-size:14px">●</span> <span style="font-size:12px">Depósito/Transferencia</span></div>
+        <div style="text-align:right"><div style="color:#5B9BD5;font-weight:700">${fmt(deposito)}</div><div style="font-size:9px;color:var(--dim)">${pctDep}%</div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e1e1e">
+        <div><span style="color:#E05C5C;font-size:14px">●</span> <span style="font-size:12px">Vencido (rentas atrasadas)</span></div>
+        <div style="text-align:right"><div style="color:#E05C5C;font-weight:700">${fmt(montoVencido)}</div><div style="font-size:9px;color:var(--dim)">${pctVenc}% · ${inqVenc.length} inq</div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0">
+        <div><span style="color:#888;font-size:14px">●</span> <span style="font-size:12px">Por cobrar (sin vencer)</span></div>
+        <div style="text-align:right"><div style="color:#888;font-weight:700">${fmt(pendSinVencer)}</div><div style="font-size:9px;color:var(--dim)">${pctPend}%</div></div>
+      </div>
+    </div>
+
+    <div style="background:linear-gradient(135deg,#1a1a1a,#222);border:1px solid #333;border-radius:11px;padding:12px 14px;margin-bottom:12px;text-align:center">
+      <div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Total esperado</div>
+      <div style="font-family:'Playfair Display',serif;font-size:26px;color:var(--gold);margin-top:3px">${fmt(totalEsp)}</div>
+    </div>
+
+    <button class="btn bo bfu" onclick="closeM();go('inq');setTimeout(()=>togglePropInq('${propId}'),100)" style="margin-bottom:10px">Ver propiedades e inquilinos →</button>
+    <div style="height:16px"></div>
+    </div>`);
+}
+
+function openPropietarioEdit(id){
+  const p=id?getPropietario(id):{fecha_inicio:todayISO()};
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">${id?'Editar':'Nuevo'} propietario</div>
+    <div class="fg"><label class="fl">Nombre *</label><input class="fi" id="pr-nombre" value="${p.nombre||''}" placeholder="Ej: IRMA" autofocus></div>
+    <div class="fg"><label class="fl">Contacto (persona/relación)</label><input class="fi" id="pr-contacto" value="${p.contacto||''}" placeholder="Ej: Mi madre / Cliente asesorado"></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Teléfono</label><input class="fi" type="tel" id="pr-tel" value="${p.telefono||''}"></div>
+      <div class="fg"><label class="fl">Correo</label><input class="fi" type="email" id="pr-correo" value="${p.correo||''}"></div>
+    </div>
+    <div class="fg"><label class="fl">Fecha inicio</label><input class="fi" type="date" id="pr-fecha" value="${p.fecha_inicio||todayISO()}"></div>
+    <div class="fg"><label class="fl">Notas</label><textarea class="fi" id="pr-notas" rows="2">${p.notas||''}</textarea></div>
+    <div style="display:flex;gap:8px">
+      ${id?`<button class="btn bd" onclick="delPropietario('${id}')">🗑️</button>`:''}
+      <button class="btn bg bfu" onclick="savePropietario('${id||''}')">Guardar</button>
+    </div></div>`);
+}
+
+function savePropietario(id){
+  const nombre=document.getElementById('pr-nombre').value.trim().toUpperCase();
+  if(!nombre){snack('Falta nombre');return;}
+  const obj={
+    nombre,
+    contacto:document.getElementById('pr-contacto').value.trim(),
+    telefono:document.getElementById('pr-tel').value.trim(),
+    correo:document.getElementById('pr-correo').value.trim(),
+    fecha_inicio:document.getElementById('pr-fecha').value,
+    notas:document.getElementById('pr-notas').value.trim()
+  };
+  if(id){Object.assign(getPropietario(id),obj);}
+  else{
+    const newId='prop_'+nombre.toLowerCase().replace(/[^a-z0-9]/g,'_')+'_'+uid().slice(0,4);
+    DB.propietarios.push({id:newId,...obj,creado:nowISO()});
+  }
+  saveDB('propietarios');closeM();snack('Propietario guardado ✓');rerender();
+}
+
+function delPropietario(id){
+  const p=getPropietario(id);if(!p)return;
+  const inms=DB.inmuebles.filter(x=>x.propietarioId===id).length;
+  const inqs=DB.inquilinos.filter(x=>x.propietarioId===id).length;
+  if(inms>0||inqs>0){
+    if(!confirm(`⚠️ ${p.nombre} tiene ${inms} propiedades y ${inqs} inquilinos.\n\nAl eliminar el propietario, TODOS sus datos (inmuebles, inquilinos, pagos, gastos, obras, servicios, etc.) SE BORRARÁN y NO se puede deshacer.\n\n¿Estás seguro?`))return;
+    if(!confirm(`Confirmación final: borrar propietario ${p.nombre} y TODOS sus datos. ¿Proceder?`))return;
+    // Delete cascaded
+    ['inquilinos','inmuebles','gastos','obras','incidentes','otros_ingresos','inspecciones','servicios'].forEach(k=>{
+      DB[k]=DB[k].filter(x=>x.propietarioId!==id);
+      saveDB(k);
+    });
+    // Also cleanup pagos of deleted inquilinos and recibos/pagos_servicios of deleted servicios
+    const validInqIds=new Set(DB.inquilinos.map(i=>i.id));
+    DB.pagos=DB.pagos.filter(p=>validInqIds.has(p.iid));
+    const validSvcIds=new Set(DB.servicios.map(s=>s.id));
+    DB.recibos_servicios=DB.recibos_servicios.filter(r=>validSvcIds.has(r.servicioId));
+    DB.pagos_servicios=DB.pagos_servicios.filter(p=>validSvcIds.has(p.servicioId));
+    saveDB('pagos');saveDB('recibos_servicios');saveDB('pagos_servicios');
+  }else if(!confirm(`¿Eliminar propietario "${p.nombre}" (sin datos)?`))return;
+  DB.propietarios=DB.propietarios.filter(x=>x.id!==id);
+  saveDB('propietarios');closeM();snack('Propietario eliminado');rerender();
+}
+
+
 // ─── CONCILIACIÓN ──────────────────────────────────────
 function renderCon(){
-  document.getElementById("v-con").innerHTML=`
-    <div class="subnav">
-      <button class="${conSub==='lista'?'on':''}" onclick="conSub='lista';document.getElementById('fab').style.display='none';renderCon()">📋 Lista</button>
-      <button class="${conSub==='gastos'?'on':''}" onclick="conSub='gastos';document.getElementById('fab').style.display='flex';renderCon()">💸 Gastos</button>
-      <button class="${conSub==='resumen'?'on':''}" onclick="conSub='resumen';document.getElementById('fab').style.display='none';renderCon()">⚖️ Resumen</button>
-      <button class="${conSub==='hist'?'on':''}" onclick="conSub='hist';document.getElementById('fab').style.display='none';renderCon()">📊 Historial</button>
+  // GESTIÓN — quick actions + activity feed
+  document.getElementById('fab').style.display='flex';
+  // Recent items (last 30 days) combined
+  const now=new Date();
+  const cutoff=new Date(now.getTime()-30*86400000);
+  const feed=[];
+  DB.gastos.forEach(g=>{const d=new Date(g.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'gasto',fecha:d,item:g});});
+  DB.otros_ingresos.forEach(o=>{const d=new Date(o.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'otro_ing',fecha:d,item:o});});
+  DB.obras.forEach(o=>{const d=new Date(o.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'obra',fecha:d,item:o});});
+  DB.incidentes.forEach(i=>{const d=new Date(i.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'incidente',fecha:d,item:i});});
+  DB.inspecciones.forEach(i=>{const d=new Date(i.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'inspeccion',fecha:d,item:i});});
+  feed.sort((a,b)=>b.fecha-a.fecha);
+  // Filter by propietario
+  let feedFiltered=feed;
+  if(propFilter!=='todos'){
+    const p=getPropietarioByName(propFilter);
+    if(p)feedFiltered=feed.filter(f=>f.item.propietarioId===p.id);
+  }
+  // Bitácora hoy
+  const b=getBitacoraHoyResumen();
+  const proxProg=b.progActivos[0];
+  const totalPendBit=b.pendActivos.length+b.progActivos.length;
+
+  let html=`<div class="st">Acciones rápidas</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <button class="quick-btn" onclick="openAddGasto()" style="padding:16px 10px;text-align:center">
+        <div style="font-size:26px">💸</div><div style="font-weight:700;margin-top:4px;font-size:12px">+ Gasto</div>
+      </button>
+      <button class="quick-btn" onclick="openAddOtroIngreso()" style="padding:16px 10px;text-align:center">
+        <div style="font-size:26px">💰</div><div style="font-weight:700;margin-top:4px;font-size:12px">+ Ingreso</div>
+      </button>
     </div>
-    <div id="con-content"></div>`;
-  if(conSub==='lista')renderListaInq();
-  else if(conSub==='gastos')renderGastos();
-  else if(conSub==='resumen')renderResumen();
-  else renderHistorial();
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
+      <button class="btn bo" onclick="openObraForm()" style="padding:10px 4px;font-size:11px">🔨 Obra</button>
+      <button class="btn bo" onclick="openIncidenteForm()" style="padding:10px 4px;font-size:11px">🚨 Incidente</button>
+      <button class="btn bo" onclick="openInspeccionForm()" style="padding:10px 4px;font-size:11px">🏠 Inspección</button>
+    </div>
+    <button class="btn bo bfu" onclick="openBitacora()" style="margin-bottom:14px;text-align:left;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="font-size:22px">📅</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:13px">Bitácora de hoy</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${totalPendBit===0&&b.hechos===0?'Sin items':(b.hechos>0?b.hechos+' ✓ · ':'')+totalPendBit+' pendiente'+(totalPendBit===1?'':'s')+(proxProg?' · próximo '+proxProg.hora+' '+proxProg.titulo.slice(0,30):'')}</div>
+        </div>
+      </div>
+    </button>
+    <div class="cr" style="margin-bottom:8px">
+      <span class="chip${propFilter==='todos'?' on':''}" onclick="propFilter='todos';renderCon()">👥 Todos</span>
+      ${DB.propietarios.map(p=>`<span class="chip${propFilter===p.nombre?' on':''}" onclick="propFilter='${p.nombre.replace(/'/g,"\\'")}';renderCon()">👤 ${p.nombre}</span>`).join('')}
+    </div>
+    <div class="st-sm">Actividad reciente (últimos 30 días · ${feedFiltered.length})</div>`;
+  if(feedFiltered.length===0){
+    html+=`<div class="es"><div class="ei">📭</div><div class="et">Sin actividad reciente</div></div>`;
+  }else{
+    html+='<div style="max-height:60vh;overflow-y:auto">';
+    feedFiltered.slice(0,50).forEach(f=>{
+      const propObj=getPropietario(f.item.propietarioId);
+      const propName=propObj?.nombre||'—';
+      const dateStr=f.fecha.toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
+      if(f.tipo==='gasto'){
+        const cat=CATS_GASTO[f.item.categoria]||CATS_GASTO.otros;
+        html+=`<div onclick="openAddGasto('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${cat.i} ${f.item.descripcion}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName} · ${f.item.inmueble||'—'} · ${cat.n}</div></div>
+          <div style="color:var(--r);font-weight:700">−${fmt(f.item.monto)}</div></div>`;
+      }else if(f.tipo==='otro_ing'){
+        const cat=CATS_OTROS_ING[f.item.categoria]||CATS_OTROS_ING.otro;
+        html+=`<div onclick="openAddOtroIngreso('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${cat.i} ${f.item.concepto}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName} · ${f.item.inmueble||'—'}</div></div>
+          <div style="color:var(--g);font-weight:700">+${fmt(f.item.monto)}</div></div>`;
+      }else if(f.tipo==='obra'){
+        const tipo=TIPOS_OBRA[f.item.tipo]||TIPOS_OBRA.otros;
+        html+=`<div onclick="openObraDetail('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${tipo.i} ${tipo.n}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName} · ${f.item.inmueble||'—'}</div></div>
+          <div style="color:var(--r);font-weight:700">${fmt(f.item.costo)}</div></div>`;
+      }else if(f.tipo==='incidente'){
+        const n=NIVELES_INC.find(x=>x.k===f.item.nivel)||NIVELES_INC[0];
+        html+=`<div onclick="openIncidenteDetail('${f.item.id}')" style="background:var(--s1);border:1px solid ${n.c}44;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;${f.item.resuelto?'opacity:.7':''}">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600">🚨 ${f.item.numero||'?'}${f.item.resuelto?' <span style="font-size:9px;color:var(--g)">✓ resuelto</span>':''}</div>
+              <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName} · ${f.item.lugar}</div>
+            </div>
+            <span class="bge" style="background:${n.c}33;color:${n.c};border-color:${n.c}66;font-size:9px">${n.n}</span>
+          </div></div>`;
+      }else if(f.tipo==='inspeccion'){
+        const cc=f.item.porcentaje>=80?'#5CB87A':f.item.porcentaje>=60?'#E0B840':'#E05C5C';
+        html+=`<div onclick="viewInspeccion('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">🏠 Inspección ${f.item.inmueble||''}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName}${f.item.inspector?' · '+f.item.inspector:''}</div></div>
+          <div style="color:${cc};font-weight:700">${(f.item.porcentaje||0).toFixed(0)}%</div></div>`;
+      }
+    });
+    if(feedFiltered.length>50)html+=`<div style="text-align:center;padding:10px;color:var(--dim);font-size:11px">+ ${feedFiltered.length-50} más...</div>`;
+    html+=`</div>`;
+  }
+  document.getElementById("v-con").innerHTML=html;
 }
 
 // ── Lista Inquilinaria ────────────
@@ -1079,54 +1428,97 @@ function openInmuebleDet(inm){
   modal(html);
 }
 
-function openInmuebleEdit(nombreActual){
-  const inm=DB.inmuebles.find(x=>x.nombre===nombreActual)||{nombre:nombreActual};
-  const tenantsHere=DB.inquilinos.filter(t=>t.inmueble===nombreActual);
-  const propietarios=[...new Set(tenantsHere.map(t=>t.propietario).filter(Boolean))];
+function openInmuebleEditForm(inmId,defaultPropId){
+  // Called from Propietarios drill-down
+  const inm=inmId?DB.inmuebles.find(x=>x.id===inmId):{propietarioId:defaultPropId||''};
+  const isNew=!inmId;
+  const tenantsHere=inm.id?DB.inquilinos.filter(t=>t.inmuebleId===inm.id||t.inmueble===inm.nombre):[];
   modal(`<div class="ms"><div class="mh"></div>
-    <div class="mt2">🏢 Editar inmueble</div>
-    <div class="card" style="padding:10px;margin-bottom:14px;background:var(--s2)">
-      <div style="font-size:11px;color:var(--dim)">Información actual</div>
-      <div style="font-size:13px;margin-top:4px">${tenantsHere.length} inquilinos · ${propietarios.join(', ')||'sin propietario'}</div>
-    </div>
-    <div class="fg"><label class="fl">Nombre del inmueble</label><input class="fi" id="im-nom" value="${nombreActual}"></div>
-    <div class="fg"><label class="fl">Propietario</label>
+    <div class="mt2">${isNew?'Nueva propiedad':'Editar '+(inm.nombre||'propiedad')}</div>
+    <div class="fg"><label class="fl">Nombre *</label><input class="fi" id="im-nom" value="${inm.nombre||''}" placeholder="Ej: XOCO, AEROLITO" autofocus></div>
+    <div class="fg"><label class="fl">Propietario *</label>
       <select class="fi" id="im-prop">
-        <option value="">— Mantener sin cambio —</option>
-        <option value="IRMA"${propietarios[0]==='IRMA'?' selected':''}>👩 Irma</option>
-        <option value="ANTONIO"${propietarios[0]==='ANTONIO'?' selected':''}>👨 Antonio</option>
-      </select>
-      <div style="font-size:10px;color:var(--dim);margin-top:4px">Cambiar aplica a TODOS los inquilinos de este inmueble</div></div>
+        <option value="">— Seleccionar —</option>
+        ${DB.propietarios.map(p=>`<option value="${p.id}"${inm.propietarioId===p.id?' selected':''}>${p.nombre}</option>`).join('')}
+      </select></div>
+    <div class="fg"><label class="fl">Dirección</label><input class="fi" id="im-dir" value="${inm.direccion||''}" placeholder="Calle Número, Colonia, CP"></div>
     <div class="grid2">
-      <div class="fg"><label class="fl">Total de deptos</label><input class="fi" type="number" min="0" id="im-total" value="${inm.total_depas||tenantsHere.length}"></div>
-      <div class="fg"><label class="fl">Ocupados</label><input class="fi" type="number" value="${tenantsHere.length}" disabled style="color:var(--dim)"></div>
+      <div class="fg"><label class="fl">Total deptos</label><input class="fi" type="number" min="0" id="im-total" value="${inm.total_depas||tenantsHere.length}"></div>
+      <div class="fg"><label class="fl">Ocupados</label><input class="fi" value="${tenantsHere.length}" disabled style="color:var(--dim)"></div>
     </div>
+    <div class="fg"><label class="fl">Cuenta predial (edificio)</label><input class="fi" id="im-predial" value="${inm.cuenta_predial||''}" placeholder="Número de cuenta predial"></div>
+    <div class="fg"><label class="fl">Cuenta agua (edificio)</label><input class="fi" id="im-agua" value="${inm.cuenta_agua||''}" placeholder="Número de cuenta SACMEX"></div>
     <div class="fg"><label class="fl">Notas</label><textarea class="fi" id="im-notas" rows="2">${inm.notas||''}</textarea></div>
-    <button class="btn bg bfu" onclick="saveInmueble('${nombreActual.replace(/'/g,"\\'")}')">Guardar cambios</button></div>`);
+    ${!isNew&&tenantsHere.length>0?`<div style="background:var(--s1);border-radius:8px;padding:10px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px">💡 Cuenta CFE de cada depto se edita en cada inquilino</div>
+      <div style="font-size:10px;color:var(--dim)">${tenantsHere.length} deptos ocupados actualmente</div>
+    </div>`:''}
+    <div style="display:flex;gap:8px">
+      ${!isNew?`<button class="btn bd" onclick="delInmuebleById('${inm.id}')">🗑️</button>`:''}
+      <button class="btn bg bfu" onclick="saveInmuebleById('${inm.id||''}')">Guardar</button>
+    </div></div>`);
 }
 
-function saveInmueble(nombreActual){
-  const nuevoNom=document.getElementById('im-nom').value.trim();
-  const prop=document.getElementById('im-prop').value;
-  const total=Number(document.getElementById('im-total').value)||0;
-  const notas=document.getElementById('im-notas').value.trim();
-  if(!nuevoNom){snack('Nombre requerido');return;}
-  // Actualizar registro inmueble
-  let inm=DB.inmuebles.find(x=>x.nombre===nombreActual);
-  if(inm){inm.nombre=nuevoNom;inm.total_depas=total;inm.notas=notas;if(prop)inm.propietario=prop;}
-  else{DB.inmuebles.push({id:uid(),nombre:nuevoNom,total_depas:total,notas,propietario:prop||''});}
-  // Si cambió el nombre, actualizar todos los inquilinos
-  if(nuevoNom!==nombreActual){
-    DB.inquilinos.forEach(t=>{if(t.inmueble===nombreActual)t.inmueble=nuevoNom;});
+function saveInmuebleById(id){
+  const nombre=document.getElementById('im-nom').value.trim();
+  const propId=document.getElementById('im-prop').value;
+  if(!nombre){snack('Falta nombre');return;}
+  if(!propId){snack('Selecciona propietario');return;}
+  const obj={
+    nombre,propietarioId:propId,
+    direccion:document.getElementById('im-dir').value.trim(),
+    total_depas:Number(document.getElementById('im-total').value)||0,
+    cuenta_predial:document.getElementById('im-predial').value.trim(),
+    cuenta_agua:document.getElementById('im-agua').value.trim(),
+    notas:document.getElementById('im-notas').value.trim()
+  };
+  let inm;
+  if(id){
+    inm=DB.inmuebles.find(x=>x.id===id);
+    const oldNombre=inm.nombre;
+    Object.assign(inm,obj);
+    // Cascade: si cambió nombre, actualizar inquilinos que tenían el string viejo
+    if(oldNombre!==nombre){
+      DB.inquilinos.forEach(t=>{if(t.inmueble===oldNombre)t.inmueble=nombre;});
+    }
+    // Propietario cascada: actualizar todos los inquilinos e items relacionados
+    DB.inquilinos.forEach(t=>{
+      if(t.inmuebleId===id||t.inmueble===nombre){
+        t.inmuebleId=id;t.propietarioId=propId;
+        const pObj=getPropietario(propId);if(pObj)t.propietario=pObj.nombre;
+      }
+    });
+    ['gastos','obras','otros_ingresos','inspecciones','servicios'].forEach(k=>{
+      DB[k].forEach(x=>{if(x.inmueble===nombre||x.inmueble===oldNombre){x.inmueble=nombre;x.propietarioId=propId;}});
+    });
+    saveDB('inquilinos');saveDB('gastos');saveDB('obras');saveDB('otros_ingresos');saveDB('inspecciones');saveDB('servicios');
+  }else{
+    const newId='inm_'+nombre.toLowerCase().replace(/[^a-z0-9]/g,'_')+'_'+uid().slice(0,4);
+    DB.inmuebles.push({id:newId,...obj,creado:nowISO()});
   }
-  // Si seleccionó propietario, actualizar inquilinos
-  if(prop){
-    DB.inquilinos.forEach(t=>{if(t.inmueble===nuevoNom)t.propietario=prop;});
-  }
-  saveDB('inmuebles');saveDB('inquilinos');
-  closeM();snack('Inmueble actualizado ✓');renderCon();
+  saveDB('inmuebles');
+  closeM();snack(id?'Propiedad actualizada ✓':'Propiedad creada ✓');
+  rerender();
 }
 
+function delInmuebleById(id){
+  const inm=DB.inmuebles.find(x=>x.id===id);if(!inm)return;
+  const nInq=DB.inquilinos.filter(t=>t.inmuebleId===id||t.inmueble===inm.nombre).length;
+  if(nInq>0){
+    if(!confirm(`⚠️ ${inm.nombre} tiene ${nInq} inquilinos. Al borrar la propiedad, esos inquilinos quedan huérfanos (sin inmueble asociado) pero NO se eliminan.\n\n¿Continuar?`))return;
+  }else{
+    if(!confirm(`¿Eliminar propiedad "${inm.nombre}"?`))return;
+  }
+  DB.inmuebles=DB.inmuebles.filter(x=>x.id!==id);
+  saveDB('inmuebles');closeM();snack('Propiedad eliminada');rerender();
+}
+
+function openInmuebleEdit(nombreActual){
+  // Called from old "Ficha" flow - find by name and route to openInmuebleEditForm
+  const inm=DB.inmuebles.find(x=>x.nombre===nombreActual);
+  if(inm)openInmuebleEditForm(inm.id);
+  else openInmuebleEditForm();
+}
 const DESTINOS_COMUNES=['EFE','BANORTE','HSBC','SANT','BBVA','MIFIEL','SCOTIA','AZTECA','CAJA'];
 
 function confirmTogglePago(iid,m,a){
@@ -1348,50 +1740,85 @@ function renderGastos(){
 
 function openAddGasto(id){
   const g=id?DB.gastos.find(x=>x.id===id):{};
-  const props=[...new Set(DB.inquilinos.map(i=>i.inmueble))].filter(Boolean).sort();
-  // Inmuebles recientes por frecuencia
-  const inmCounts={};
-  DB.gastos.forEach(x=>{if(x.inmueble)inmCounts[x.inmueble]=(inmCounts[x.inmueble]||0)+1;});
-  const recentInmuebles=Object.entries(inmCounts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
-  // Descripciones únicas del historial
-  const descriptions=[...new Set(DB.gastos.map(x=>x.descripcion).filter(Boolean))].slice(0,30);
   const currentCat=g.categoria||'mantenimiento';
+  const currentPropId=g.propietarioId||'';
   const currentInm=g.inmueble||'';
+  const inmuebles=currentPropId?DB.inmuebles.filter(x=>x.propietarioId===currentPropId):[];
+  const descriptions=[...new Set(DB.gastos.map(x=>x.descripcion).filter(Boolean))].slice(0,30);
   modal(`<div class="ms"><div class="mh"></div>
     <div class="mt2">💸 ${id?'Editar':'Nuevo'} Gasto</div>
+
     <div class="fg">
-      <label class="fl">Monto *</label>
-      <input class="fi" type="number" step="0.01" id="g-monto" value="${g.monto||''}" inputmode="decimal" placeholder="0.00" style="font-size:26px;font-weight:700;text-align:center;font-family:'Playfair Display',serif;color:var(--r);padding:14px">
-    </div>
-    <div class="fg">
-      <label class="fl">Categoría</label>
+      <label class="fl">1. Categoría *</label>
       <div class="chip-grid" id="cat-chips">
         ${Object.entries(CATS_GASTO).map(([k,v])=>`<div class="cat-chip${currentCat===k?' on':''}" data-cat="${k}" onclick="selectCat('${k}')" style="${currentCat===k?'border-color:'+v.c+';background:'+v.c+'22':''}">${v.i} ${v.n}</div>`).join('')}
       </div>
       <input type="hidden" id="g-cat" value="${currentCat}">
     </div>
+
     <div class="fg">
-      <label class="fl">Inmueble ${currentInm?'':'<span style="color:var(--dim);font-weight:400">(opcional)</span>'}</label>
-      ${recentInmuebles.length>0?`<div class="chip-grid" style="margin-bottom:6px">
-        ${recentInmuebles.map(inm=>`<div class="cat-chip${currentInm===inm?' on':''}" onclick="selectInmChip('${inm.replace(/'/g,"\\'")}')" style="font-size:11px;padding:6px 10px${currentInm===inm?';border-color:var(--gold);background:var(--gdim)':''}">${inm}</div>`).join('')}
-      </div>`:''}
-      <input class="fi" id="g-inm" list="props-list-g" value="${currentInm}" placeholder="Otro o escribir...">
-      <datalist id="props-list-g">${props.map(p=>`<option value="${p}">`).join('')}</datalist>
+      <label class="fl">2. Propietario *</label>
+      <div class="chip-grid" id="prop-chips-g">
+        ${DB.propietarios.map(p=>`<div class="cat-chip${currentPropId===p.id?' on':''}" data-prop="${p.id}" onclick="selectPropGasto('${p.id}')" style="${currentPropId===p.id?'border-color:var(--gold);background:var(--gdim)':''}">👤 ${p.nombre}</div>`).join('')}
+      </div>
+      <input type="hidden" id="g-propId" value="${currentPropId}">
     </div>
+
+    <div class="fg">
+      <label class="fl">3. Inmueble *</label>
+      <div class="chip-grid" id="inm-chips-g">
+        ${inmuebles.length===0?'<div style="font-size:11px;color:var(--dim);padding:8px">Elige un propietario primero</div>':inmuebles.map(im=>`<div class="cat-chip${currentInm===im.nombre?' on':''}" data-inm="${im.nombre.replace(/"/g,'&quot;')}" onclick="selectInmGasto('${im.nombre.replace(/'/g,"\\'")}')" style="${currentInm===im.nombre?'border-color:var(--gold);background:var(--gdim)':''}">🏢 ${im.nombre}</div>`).join('')}
+      </div>
+      <input type="hidden" id="g-inm" value="${currentInm}">
+    </div>
+
+    <div class="grid2">
+      <div class="fg">
+        <label class="fl">4. Monto $ *</label>
+        <input class="fi" type="number" step="0.01" id="g-monto" value="${g.monto||''}" inputmode="decimal" placeholder="0.00" style="font-size:22px;font-weight:700;text-align:center;font-family:'Playfair Display',serif;color:var(--r);padding:12px">
+      </div>
+      <div class="fg"><label class="fl">Fecha</label><input class="fi" type="date" id="g-fecha" value="${g.fecha?g.fecha.slice(0,10):todayISO()}"></div>
+    </div>
+
     <div class="fg">
       <label class="fl">Descripción *</label>
       <input class="fi" id="g-desc" value="${g.descripcion||''}" list="desc-list-g" placeholder="Ej: Pintura vinílica, cemento..." oninput="inferCategoryFromDesc(this.value)">
       <datalist id="desc-list-g">${descriptions.map(d=>`<option value="${d.replace(/"/g,'&quot;')}">`).join('')}</datalist>
     </div>
-    <div class="grid2">
-      <div class="fg"><label class="fl">Fecha</label><input class="fi" type="date" id="g-fecha" value="${g.fecha?g.fecha.slice(0,10):todayISO()}"></div>
-      <div class="fg"><label class="fl">Notas</label><input class="fi" id="g-notas" value="${g.notas||''}"></div>
-    </div>
+    <div class="fg"><label class="fl">Notas (opcional)</label><input class="fi" id="g-notas" value="${g.notas||''}"></div>
+
     <div style="display:flex;gap:8px">
       ${id?`<button class="btn bd" onclick="delGasto('${id}')">🗑️</button>`:''}
       <button class="btn bg bfu" onclick="saveGasto('${id||''}')">Guardar gasto</button>
     </div></div>`);
-  setTimeout(()=>{const el=document.getElementById('g-monto');if(el){el.focus();if(!id)el.select();}},150);
+  setTimeout(()=>{const el=document.getElementById('g-monto');if(el&&!currentPropId)el.focus();},150);
+}
+
+function selectPropGasto(propId){
+  document.getElementById('g-propId').value=propId;
+  // Update UI
+  document.querySelectorAll('#prop-chips-g .cat-chip').forEach(el=>{
+    if(el.dataset.prop===propId){el.classList.add('on');el.style.borderColor='var(--gold)';el.style.background='var(--gdim)';}
+    else{el.classList.remove('on');el.style.borderColor='#333';el.style.background='';}
+  });
+  // Rebuild inmuebles chips
+  const inmChips=document.getElementById('inm-chips-g');
+  const inmuebles=DB.inmuebles.filter(x=>x.propietarioId===propId);
+  document.getElementById('g-inm').value='';
+  if(inmuebles.length===0){
+    inmChips.innerHTML='<div style="font-size:11px;color:var(--dim);padding:8px">Este propietario no tiene propiedades registradas</div>';
+  }else{
+    inmChips.innerHTML=inmuebles.map(im=>`<div class="cat-chip" data-inm="${im.nombre.replace(/"/g,'&quot;')}" onclick="selectInmGasto('${im.nombre.replace(/'/g,"\\'")}')" style="">🏢 ${im.nombre}</div>`).join('');
+  }
+}
+
+function selectInmGasto(inm){
+  document.getElementById('g-inm').value=inm;
+  document.querySelectorAll('#inm-chips-g .cat-chip').forEach(el=>{
+    if(el.dataset.inm===inm){el.classList.add('on');el.style.borderColor='var(--gold)';el.style.background='var(--gdim)';}
+    else{el.classList.remove('on');el.style.borderColor='#333';el.style.background='';}
+  });
+  const monto=document.getElementById('g-monto');if(monto&&!monto.value)monto.focus();
 }
 
 function saveGasto(id){
@@ -1399,20 +1826,25 @@ function saveGasto(id){
   const monto=document.getElementById('g-monto').value;
   const desc=document.getElementById('g-desc').value.trim();
   const fecha=document.getElementById('g-fecha').value;
-  if(!monto||!desc||!fecha){snack('Completa los campos obligatorios');return;}
-  // Parse local date properly (avoid timezone parsing issues)
+  const propId=document.getElementById('g-propId').value;
+  const inm=document.getElementById('g-inm').value.trim();
+  if(!monto||!desc||!fecha){snack('Completa monto, descripción y fecha');return;}
+  if(!propId){snack('Selecciona propietario');return;}
+  if(!inm){snack('Selecciona inmueble');return;}
+  // Parse local date properly
   const [yy,mm,dd]=fecha.split('-').map(Number);
   const now=new Date();
   const fechaLocal=new Date(yy,mm-1,dd,now.getHours(),now.getMinutes(),now.getSeconds());
   const obj={
     categoria:cat,monto:Number(monto),descripcion:desc,
     fecha:fechaLocal.toISOString(),
-    inmueble:document.getElementById('g-inm').value.trim(),
+    propietarioId:propId,inmueble:inm,
     notas:document.getElementById('g-notas').value.trim()
   };
   if(id){Object.assign(DB.gastos.find(x=>x.id===id),obj);}
   else{DB.gastos.push({id:uid(),...obj,creado:nowISO()});}
-  saveDB('gastos');closeM();snack(id?'Gasto actualizado ✓':'Gasto registrado ✓');renderCon();
+  saveDB('gastos');closeM();snack(id?'Gasto actualizado ✓':'Gasto registrado ✓');
+  rerender();
 }
 
 function delGasto(id){
@@ -1739,89 +2171,168 @@ function exportExcelMovs(){
 
 // ─── Inquilinos CRUD ───────────────────────────────
 // ─── Inmuebles view (combina Inmuebles + Inquilinos por inmueble) ─────
+// ─── PROPIETARIOS (antes Inmuebles) — drill-down 3 niveles ─────
 function renderInq(){
-  const todos=DB.inquilinos;
-  if(!todos.length){document.getElementById("v-inq").innerHTML=`<div class="es"><div class="ei">🏢</div><div class="et">Sin inmuebles/inquilinos</div></div>`;return;}
-  let html=`
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <input class="fi" id="search-inq" placeholder="🔍 Buscar inmueble o inquilino..." oninput="renderInqList()" style="flex:1">
-    </div>
-    <div class="cr" style="margin-bottom:6px">
-      <span class="chip${propFilter==='todos'?' on':''}" onclick="propFilter='todos';renderInqList()">👥 Todos</span>
-      <span class="chip${propFilter==='IRMA'?' on':''}" onclick="propFilter='IRMA';renderInqList()">👩 Irma</span>
-      <span class="chip${propFilter==='ANTONIO'?' on':''}" onclick="propFilter='ANTONIO';renderInqList()">👨 Antonio</span>
-    </div>
-    <div id="inq-summary"></div>
-    <div id="inq-list"></div>`;
+  if(!DB.propietarios.length){
+    document.getElementById("v-inq").innerHTML=`<div class="es"><div class="ei">👥</div><div class="et">Sin propietarios<br><br>Crea uno desde Directorio</div></div>`;
+    return;
+  }
+  let html=`<div style="display:flex;gap:8px;margin-bottom:10px">
+    <input class="fi" id="search-inq" placeholder="🔍 Buscar propietario, inmueble o inquilino..." oninput="renderPropList()" style="flex:1">
+  </div>
+  <div class="cr" style="margin-bottom:10px">`;
+  // Month chips (future + current + past)
+  for(let i=2;i>=-4;i--){
+    const d=new Date(HA,HM-1+i,1);const m=d.getMonth()+1,a=d.getFullYear();
+    const sel=(m===curMes&&a===curAnio);
+    const isFut=(a>HA||(a===HA&&m>HM));
+    html+=`<span class="chip${sel?' on':''}" onclick="curMes=${m};curAnio=${a};renderPropList()" style="${isFut?'border-style:dashed':''}">${isFut?'→ ':''}${MF[m-1]} ${a}</span>`;
+  }
+  html+=`</div><div id="prop-list"></div>`;
   document.getElementById("v-inq").innerHTML=html;
-  renderInqList();
+  renderPropList();
 }
 
-function renderInqList(){
+function renderPropList(){
   const q=(document.getElementById("search-inq")?.value||"").toLowerCase();
-  // Filter inquilinos
-  let act=DB.inquilinos.filter(i=>i.estado==='activo'&&inCartera(i));
-  if(propFilter!=='todos')act=act.filter(i=>i.propietario===propFilter);
-  if(q)act=act.filter(i=>i.nombre.toLowerCase().includes(q)||i.inmueble.toLowerCase().includes(q));
-
-  // Group by inmueble
-  const grupos={};
-  act.forEach(i=>{if(!grupos[i.inmueble])grupos[i.inmueble]=[];grupos[i.inmueble].push(i);});
-  Object.values(grupos).forEach(g=>g.sort((a,b)=>(a.dia||0)-(b.dia||0)||a.nombre.localeCompare(b.nombre)));
-
-  const inmuebles=Object.keys(grupos).sort();
-
-  // Summary card
-  const totalRentaMes=act.reduce((s,i)=>s+Number(i.renta||0),0);
-  const totalCob=act.filter(i=>isPagado(i.id,HM,HA)).reduce((s,i)=>{const p=getPago(i.id,HM,HA);return s+Number(p?.monto||0);},0);
-  const totalDeuda=inmuebles.reduce((s,inm)=>s+getInmuebleDeudaTotal(inm),0);
-  document.getElementById("inq-summary").innerHTML=`
-    <div class="summary-card" style="margin-bottom:12px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">
-        <div><div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Inmuebles</div><div style="font-family:'Playfair Display',serif;font-size:22px;color:var(--gold)">${inmuebles.length}</div><div style="font-size:10px;color:var(--dim)">${act.length} inquilinos</div></div>
-        <div><div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:1px">Renta mensual</div><div style="font-family:'Playfair Display',serif;font-size:18px;color:var(--g)">${fmt(totalCob)}</div><div style="font-size:10px;color:var(--dim)">de ${fmt(totalRentaMes)}</div></div>
-      </div>
-      ${totalDeuda>0?`<div style="margin-top:10px;padding:6px 10px;background:#E05C5C22;border:1px solid #E05C5C55;border-radius:8px;font-size:11px;color:var(--r);text-align:center">⚠️ Deuda de servicios acumulada: <b>${fmt(totalDeuda)}</b></div>`:''}
-    </div>`;
-
-  // Cards de cada inmueble
-  let list='';
-  if(!inmuebles.length){list=`<div class="es"><div class="ei">🔍</div><div class="et">Sin resultados</div></div>`;}
-  else{
-    inmuebles.forEach(inm=>{
-      const items=grupos[inm];
-      const propietario=items[0]?.propietario||'';
-      const totalRenta=items.reduce((s,i)=>s+Number(i.renta||0),0);
-      const nCobrados=items.filter(i=>isPagado(i.id,HM,HA)).length;
-      const nVenc=items.filter(i=>isLate(i.id,HM,HA)).length;
-      const cobrado=items.filter(i=>isPagado(i.id,HM,HA)).reduce((s,i)=>{const p=getPago(i.id,HM,HA);return s+Number(p?.monto||0);},0);
-      const deuda=getInmuebleDeudaTotal(inm);
-      const pct=totalRenta>0?Math.round(cobrado/totalRenta*100):0;
-      const key='inq_'+inm;
-      const open=(!!q)||expandedInm[key]!==false;
-      list+=`<div class="inm-group">
-        <div class="inm-hd" onclick="toggleInqInm('${inm.replace(/'/g,"\\'")}')">
-          <div class="inm-hd-l"><span class="inm-arrow ${open?'open':''}">▶</span>
+  const searchOn=!!q;
+  let html='';
+  DB.propietarios.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).forEach(p=>{
+    const inms=DB.inmuebles.filter(x=>x.propietarioId===p.id);
+    const allTenants=DB.inquilinos.filter(x=>x.propietarioId===p.id&&x.estado==='activo');
+    // Filter by search - if match propietario name, show all; else filter tenants
+    let matchProp=!q||(p.nombre||'').toLowerCase().includes(q);
+    let matchAnyChild=false;
+    if(q&&!matchProp){
+      matchAnyChild=inms.some(inm=>(inm.nombre||'').toLowerCase().includes(q))||
+                     allTenants.some(t=>(t.nombre||'').toLowerCase().includes(q));
+    }
+    if(q&&!matchProp&&!matchAnyChild)return;
+    const totalRenta=allTenants.reduce((s,t)=>s+Number(t.renta||0),0);
+    const cobrado=allTenants.filter(t=>isPagado(t.id,curMes,curAnio)).reduce((s,t)=>{const pg=getPago(t.id,curMes,curAnio);return s+Number(pg?.monto||0);},0);
+    const nVenc=allTenants.filter(t=>isLate(t.id,curMes,curAnio)).length;
+    const pct=totalRenta>0?Math.round(cobrado/totalRenta*100):0;
+    const kProp='prop_open_'+p.id;
+    const openProp=searchOn||expandedInm[kProp]!==false;
+    html+=`<div style="background:var(--s1);border:1px solid #222;border-radius:11px;margin-bottom:10px;overflow:hidden">
+      <div onclick="togglePropInq('${p.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:linear-gradient(90deg,var(--s1),transparent);cursor:pointer">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+          <span class="inm-arrow ${openProp?'open':''}" style="color:var(--gold)">▶</span>
           <div style="flex:1;min-width:0">
-            <div class="inm-nom">${inm}${propietario?` <span style="font-size:9px;color:var(--dim);font-weight:400;letter-spacing:1px">${propietario}</span>`:''}</div>
-            <div class="inm-meta">${items.length} inq · ${nCobrados}/${items.length} pagados · ${fmt(cobrado)}/${fmt(totalRenta)}${deuda>0?` <span style="color:var(--r)">· ⚠️ ${fmt(deuda)}</span>`:''}</div>
-          </div></div>
-          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-            <button class="btn bs bsm" onclick="event.stopPropagation();openInmuebleDet('${inm.replace(/'/g,"\\'")}')" style="font-size:10px;padding:4px 8px">📊 Ficha</button>
+            <div style="font-weight:700;color:var(--gold);font-size:15px">👤 ${p.nombre}</div>
+            <div style="font-size:10px;color:var(--dim);margin-top:2px">${inms.length} propiedades · ${allTenants.length} inq · ${pct}% cobrado${nVenc>0?` · <span style="color:var(--r)">${nVenc} venc</span>`:''}</div>
           </div>
         </div>
-        <div class="inm-body ${open?'open':''}">
-          ${items.map(tileInqGrouped).join('')}
-        </div></div>`;
-    });
-  }
-  document.getElementById("inq-list").innerHTML=list;
+        <button class="btn bo bsm" onclick="event.stopPropagation();openPropietarioEdit('${p.id}')" style="font-size:10px;padding:4px 7px">⚙️</button>
+      </div>`;
+    if(openProp){
+      html+=`<div style="padding:0 10px 10px">`;
+      if(inms.length===0){
+        html+=`<div style="padding:14px;text-align:center;color:var(--dim);font-size:12px">Sin propiedades registradas</div>`;
+      }else{
+        inms.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).forEach(inm=>{
+          // Filter by search
+          let inmMatch=!q||(inm.nombre||'').toLowerCase().includes(q)||matchProp;
+          const tenants=allTenants.filter(t=>t.inmuebleId===inm.id||t.inmueble===inm.nombre);
+          const anyTenantMatch=tenants.some(t=>(t.nombre||'').toLowerCase().includes(q));
+          if(q&&!inmMatch&&!anyTenantMatch&&!matchProp)return;
+          tenants.sort((a,b)=>(a.dia||0)-(b.dia||0)||(a.interior||'').localeCompare(b.interior||''));
+          const inmRenta=tenants.reduce((s,t)=>s+Number(t.renta||0),0);
+          const inmCob=tenants.filter(t=>isPagado(t.id,curMes,curAnio)).reduce((s,t)=>{const pg=getPago(t.id,curMes,curAnio);return s+Number(pg?.monto||0);},0);
+          const inmVenc=tenants.filter(t=>isLate(t.id,curMes,curAnio)).length;
+          const deuda=getInmuebleDeudaTotal(inm.nombre);
+          const kInm='inq_open_'+inm.id;
+          const openInm=searchOn||expandedInm[kInm]!==false;
+          html+=`<div style="background:var(--s2);border-radius:9px;margin-bottom:6px;overflow:hidden;border:1px solid #262626">
+            <div onclick="toggleInmInq('${inm.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;cursor:pointer">
+              <div style="flex:1;min-width:0;display:flex;gap:8px;align-items:center">
+                <span class="inm-arrow ${openInm?'open':''}">▶</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:600;font-size:13px">🏢 ${inm.nombre}</div>
+                  <div style="font-size:10px;color:var(--dim);margin-top:2px">${tenants.length} inq · ${fmt(inmCob)}/${fmt(inmRenta)}${inmVenc>0?` · <span style="color:var(--r)">${inmVenc} venc</span>`:''}${deuda>0?` · <span style="color:var(--r)">⚠ ${fmt(deuda)}</span>`:''}</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:4px">
+                <button class="btn bs bsm" onclick="event.stopPropagation();openInmuebleDet('${inm.nombre.replace(/'/g,"\\'")}')" style="font-size:9px;padding:3px 6px">📊</button>
+                <button class="btn bo bsm" onclick="event.stopPropagation();openInmuebleEditForm('${inm.id}')" style="font-size:9px;padding:3px 6px">⚙️</button>
+              </div>
+            </div>`;
+          if(openInm){
+            html+=`<div style="padding:0 8px 8px">`;
+            if(tenants.length===0){
+              html+=`<div style="padding:10px;text-align:center;color:var(--dim);font-size:11px">Sin inquilinos activos<br><button class="btn bs bsm" onclick="openEditTenantWithDefaults('${p.id}','${inm.id}')" style="margin-top:6px;font-size:10px">+ Agregar inquilino</button></div>`;
+            }else{
+              tenants.forEach(t=>{
+                const paid=isPagado(t.id,curMes,curAnio);
+                const late=isLate(t.id,curMes,curAnio);
+                const pg=getPago(t.id,curMes,curAnio);
+                html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 8px;background:var(--s1);border-radius:7px;margin-bottom:4px;border:1px solid #1a1a1a">
+                  <div onclick="event.stopPropagation();quickTogglePagoInq('${t.id}',${curMes},${curAnio})" class="bit-check ${paid?'done':''}" style="cursor:pointer;background:${paid?'var(--g)':'transparent'};border-color:${paid?'var(--g)':late?'var(--r)':'#555'};color:${paid?'#000':'transparent'}">${paid?'✓':''}</div>
+                  <div class="inq-dia" style="min-width:24px;text-align:center;background:var(--s2);padding:3px 6px;border-radius:5px;font-size:10px;font-weight:700;color:var(--gold)">${t.dia||'—'}</div>
+                  <div style="flex:1;min-width:0;cursor:pointer" onclick="openDet('${t.id}')">
+                    <div style="font-size:12.5px;font-weight:600">${t.nombre}${t.interior?` <span style="color:var(--dim);font-weight:400;font-size:11px">· Int ${t.interior}</span>`:''}</div>
+                    <div style="font-size:10px;color:var(--dim);margin-top:1px">${t.servicios||t.estatus||''}${pg?.destino?` · pagó ${pg.destino}`:''}</div>
+                  </div>
+                  <div style="text-align:right;flex-shrink:0">
+                    <div style="font-size:12px;font-weight:700;color:var(--gold)">${fmt(t.renta)}</div>
+                    ${paid?'<div style="font-size:9px;color:var(--g)">✓ pagado</div>':late?'<div style="font-size:9px;color:var(--r)">⚠ vencido</div>':'<div style="font-size:9px;color:var(--dim)">pendiente</div>'}
+                  </div>
+                </div>`;
+              });
+              html+=`<div style="text-align:center;margin-top:6px"><button class="btn bo bsm" onclick="openEditTenantWithDefaults('${p.id}','${inm.id}')" style="font-size:10px;padding:5px 10px">+ Agregar inquilino a ${inm.nombre}</button></div>`;
+            }
+            html+=`</div>`;
+          }
+          html+=`</div>`;
+        });
+      }
+      html+=`<div style="text-align:center;margin-top:6px"><button class="btn bs bsm" onclick="openInmuebleEditForm(null,'${p.id}')" style="font-size:10px">+ Agregar propiedad a ${p.nombre}</button></div>`;
+      html+=`</div>`;
+    }
+    html+=`</div>`;
+  });
+  if(!html)html=`<div class="es"><div class="ei">🔍</div><div class="et">Sin resultados</div></div>`;
+  document.getElementById("prop-list").innerHTML=html;
 }
 
-function toggleInqInm(inm){
-  const k='inq_'+inm;
+function togglePropInq(propId){
+  const k='prop_open_'+propId;
   expandedInm[k]=expandedInm[k]===false?true:false;
-  renderInqList();
+  renderPropList();
+}
+function toggleInmInq(inmId){
+  const k='inq_open_'+inmId;
+  expandedInm[k]=expandedInm[k]===false?true:false;
+  renderPropList();
+}
+function toggleInqInm(inm){toggleInmInq(inm);} // backward compat
+
+function quickTogglePagoInq(iid,m,a){
+  event.stopPropagation();
+  const t=DB.inquilinos.find(x=>x.id===iid);if(!t)return;
+  if(isPagado(iid,m,a)){
+    // Unmark
+    if(!confirm('¿Quitar pago de '+t.nombre+' de '+MF[m-1]+' '+a+'?'))return;
+    DB.pagos=DB.pagos.filter(p=>!(p.iid===iid&&p.mes===m&&p.anio===a));
+    saveDB('pagos');snack('Pago removido');renderPropList();
+  }else{
+    // Open pago modal
+    openMarkPago(iid,m,a);
+  }
+}
+
+function openEditTenantWithDefaults(propId,inmId){
+  const inm=DB.inmuebles.find(x=>x.id===inmId);
+  // Open edit tenant form with propietario+inmueble pre-filled
+  openEditTenant();
+  setTimeout(()=>{
+    const inmField=document.getElementById('m-inm');if(inmField&&inm)inmField.value=inm.nombre;
+    const propField=document.getElementById('m-prop');
+    if(propField){
+      const propObj=getPropietario(propId);
+      if(propObj)propField.value=propObj.nombre;
+    }
+  },100);
 }
 
 function tileInqGrouped(t){
@@ -1904,52 +2415,84 @@ function closeM(){document.getElementById("modal-root").innerHTML="";pendingPhot
 
 function openEditTenant(id){
   const t=id?DB.inquilinos.find(x=>x.id===id):{};
+  const currentPropId=t.propietarioId||(t.propietario?getPropietarioByName(t.propietario)?.id:'');
+  const currentInmId=t.inmuebleId||(t.inmueble?DB.inmuebles.find(x=>x.nombre===t.inmueble)?.id:'');
+  const inmuebles=currentPropId?DB.inmuebles.filter(x=>x.propietarioId===currentPropId):DB.inmuebles;
   modal(`<div class="ms"><div class="mh"></div>
     <div class="mt2">${id?'Editar Inquilino':'Nuevo Inquilino'}</div>
     <div class="fg"><label class="fl">Nombre *</label><input class="fi" id="m-nom" value="${t?.nombre||''}"></div>
-    <div class="grid2"><div class="fg"><label class="fl">Inmueble *</label><input class="fi" id="m-inm" value="${t?.inmueble||''}"></div>
-    <div class="fg"><label class="fl">Interior</label><input class="fi" id="m-int" value="${t?.interior||''}"></div></div>
-    <div class="grid2"><div class="fg"><label class="fl">Renta $ *</label><input class="fi" type="number" id="m-rent" value="${t?.renta||''}"></div>
-    <div class="fg"><label class="fl">Día pago *</label><input class="fi" type="number" min="1" max="31" id="m-dia" value="${t?.dia||5}"></div></div>
-    <div class="grid2"><div class="fg"><label class="fl">Propietario</label>
-      <select class="fi" id="m-prop">
-        <option value=""${!t?.propietario?' selected':''}>—</option>
-        <option value="IRMA"${t?.propietario==='IRMA'?' selected':''}>👩 Irma</option>
-        <option value="ANTONIO"${t?.propietario==='ANTONIO'?' selected':''}>👨 Antonio</option>
-      </select></div>
-    <div class="fg"><label class="fl">Destino</label><input class="fi" id="m-dest" value="${t?.destino||''}"></div></div>
-    <div class="fg"><label class="fl">Servicios</label><input class="fi" id="m-srv" value="${t?.servicios||''}"></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Propietario *</label>
+        <select class="fi" id="m-propId" onchange="updateTenantInmuebles()">
+          <option value="">— Seleccionar —</option>
+          ${DB.propietarios.map(p=>`<option value="${p.id}"${currentPropId===p.id?' selected':''}>${p.nombre}</option>`).join('')}
+        </select></div>
+      <div class="fg"><label class="fl">Inmueble *</label>
+        <select class="fi" id="m-inmId">
+          <option value="">— Seleccionar —</option>
+          ${inmuebles.map(im=>`<option value="${im.id}"${currentInmId===im.id?' selected':''}>${im.nombre}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Interior / Depto</label><input class="fi" id="m-int" value="${t?.interior||''}" placeholder="Ej: 3, A, PB"></div>
+      <div class="fg"><label class="fl">Renta $ *</label><input class="fi" type="number" id="m-rent" value="${t?.renta||''}"></div>
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Día pago *</label><input class="fi" type="number" min="1" max="31" id="m-dia" value="${t?.dia||5}"></div>
+      <div class="fg"><label class="fl">Destino cobro</label><input class="fi" id="m-dest" value="${t?.destino||''}" placeholder="EFE / banco"></div>
+    </div>
+    <div class="fg"><label class="fl">Cuenta CFE / Luz (de este depto)</label><input class="fi" id="m-luz" value="${t?.cuenta_luz||''}" placeholder="Número de servicio"></div>
+    <div class="fg"><label class="fl">Servicios incluidos</label><input class="fi" id="m-srv" value="${t?.servicios||''}"></div>
     <div class="fg"><label class="fl">Estatus</label><input class="fi" id="m-est" value="${t?.estatus||'Al corriente'}"></div>
-    <div class="grid2"><div class="fg"><label class="fl">Renovación</label><input class="fi" type="date" id="m-ren" value="${t?.renovacion||''}"></div>
-    <div class="fg"><label class="fl">Contrato vigente</label><select class="fi" id="m-cv">
-      <option value="Si"${t?.contrato_vigente==='Si'||t?.contrato_vigente==='SI'||t?.contrato_vigente==='Si '?' selected':''}>Sí</option>
-      <option value="No"${t?.contrato_vigente==='No'||!t?.contrato_vigente?' selected':''}>No</option></select></div></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Renovación</label><input class="fi" type="date" id="m-ren" value="${t?.renovacion||''}"></div>
+      <div class="fg"><label class="fl">Contrato vigente</label><select class="fi" id="m-cv">
+        <option value="Si"${t?.contrato_vigente==='Si'||t?.contrato_vigente==='SI'||t?.contrato_vigente==='Si '?' selected':''}>Sí</option>
+        <option value="No"${t?.contrato_vigente==='No'||!t?.contrato_vigente?' selected':''}>No</option></select></div>
+    </div>
     <div class="fg"><label class="fl">Comentarios</label><input class="fi" id="m-com" value="${t?.comentarios||''}"></div>
     <div class="fg"><label class="fl">Estado</label><select class="fi" id="m-estado">
       <option value="activo"${(!t?.estado||t?.estado==='activo')?' selected':''}>Activo (cobrando)</option>
       <option value="inactivo"${t?.estado==='inactivo'?' selected':''}>Inactivo (ya no renta)</option></select></div>
     <div style="display:flex;gap:8px">
       ${id?`<button class="btn bd" onclick="delTenant('${id}')">🗑️ Eliminar</button>`:''}
+      ${id?`<button class="btn bo" onclick="downloadTenantPDF('${id}')">📄 Historial</button>`:''}
       <button class="btn bg bfu" onclick="saveTenant('${id||''}')">Guardar</button>
     </div></div>`);
 }
 
+function updateTenantInmuebles(){
+  const propId=document.getElementById('m-propId').value;
+  const sel=document.getElementById('m-inmId');
+  if(!sel)return;
+  const currentVal=sel.value;
+  const inmuebles=propId?DB.inmuebles.filter(x=>x.propietarioId===propId):DB.inmuebles;
+  sel.innerHTML='<option value="">— Seleccionar —</option>'+inmuebles.map(im=>`<option value="${im.id}"${currentVal===im.id?' selected':''}>${im.nombre}</option>`).join('');
+}
+
 function saveTenant(id){
   const nom=document.getElementById('m-nom').value.trim();
-  const inm=document.getElementById('m-inm').value.trim();
+  const propId=document.getElementById('m-propId').value;
+  const inmId=document.getElementById('m-inmId').value;
   const rent=document.getElementById('m-rent').value;
-  if(!nom||!inm||!rent){snack('Completa los campos obligatorios');return;}
-  const obj={nombre:nom,inmueble:inm,interior:document.getElementById('m-int').value.trim(),renta:Number(rent),
+  if(!nom||!propId||!inmId||!rent){snack('Completa: nombre, propietario, inmueble y renta');return;}
+  const propObj=getPropietario(propId);
+  const inmObj=DB.inmuebles.find(x=>x.id===inmId);
+  const obj={nombre:nom,
+    propietarioId:propId,propietario:propObj?.nombre||'',
+    inmuebleId:inmId,inmueble:inmObj?.nombre||'',
+    interior:document.getElementById('m-int').value.trim(),renta:Number(rent),
     dia:Number(document.getElementById('m-dia').value)||5,destino:document.getElementById('m-dest').value.trim(),
+    cuenta_luz:document.getElementById('m-luz').value.trim(),
     servicios:document.getElementById('m-srv').value.trim(),estatus:document.getElementById('m-est').value.trim(),
     renovacion:document.getElementById('m-ren').value,contrato_vigente:document.getElementById('m-cv').value,
-    comentarios:document.getElementById('m-com').value.trim(),estado:document.getElementById('m-estado').value,
-    propietario:document.getElementById('m-prop').value};
+    comentarios:document.getElementById('m-com').value.trim(),estado:document.getElementById('m-estado').value};
   if(id){Object.assign(DB.inquilinos.find(x=>x.id===id),obj);}else{DB.inquilinos.push({id:uid(),...obj});}
   saveDB('inquilinos');closeM();snack(id?'Actualizado ✓':'Agregado ✓');
-  if(curView==='inq')renderInqList();
+  if(curView==='inq')renderPropList();
   else if(curView==='det'&&detTenant?.id===id){detTenant=DB.inquilinos.find(x=>x.id===id);renderDet();}
   else if(curView==='con')renderCon();
+  else if(curView==='dash')renderDash();
   updNotif();
 }
 
@@ -1965,7 +2508,7 @@ function delTenant(id){
   saveDB('inquilinos');saveDB('pagos');
   closeM();snack('Inquilino eliminado');
   if(curView==='det'){detTenant=null;go('inq');}
-  else if(curView==='inq')renderInqList();
+  else if(curView==='inq')renderPropList();
   else if(curView==='con')renderCon();
 }
 
@@ -2288,101 +2831,189 @@ function delPagoServicio(id){
   openServicioBalance(svcId);
 }
 
-// ─── REPORTES (vista principal) ──────────────────
+// ─── BACK OFFICE (antes Reportes) — solo descargas ──
 function renderRep(){
-  const incActivos=DB.incidentes.filter(i=>!i.resuelto&&inCartera(i));
-  const incResueltos=DB.incidentes.filter(i=>i.resuelto&&inCartera(i));
   document.getElementById('v-rep').innerHTML=`
-    <div class="st">📧 Resumen ejecutivo</div>
-    <div class="ro" onclick="openDailySummary()"><div style="font-size:26px">📧</div><div><div class="rtit">Resumen del día por correo/WA</div><div class="rdesc">Cobranza, gastos, incidentes, obras — listo para enviar</div></div></div>
-    <div class="ro" onclick="openBitacora()"><div style="font-size:26px">📅</div><div><div class="rtit">Bitácora del día</div><div class="rdesc">Pendientes y trabajos programados por hora</div></div></div>
+    <div class="st">📧 Reporte diario</div>
+    <div class="ro" onclick="openDailySummary()"><div style="font-size:26px">📧</div><div><div class="rtit">Resumen del día (correo/WA)</div><div class="rdesc">Cobranza, gastos, incidentes, obras</div></div></div>
 
-    <div class="st" style="margin-top:14px">📥 Exportar Excel</div>
-    <div class="ro" onclick="exportExcelMes()"><div style="font-size:26px">📊</div><div><div class="rtit">Lista Inquilinaria</div><div class="rdesc">${MF[curMes-1]} ${curAnio} · formato original</div></div></div>
-    <div class="ro" onclick="rangeMode='hoy';exportExcelMovs()"><div style="font-size:26px">💰</div><div><div class="rtit">Movimientos del día</div><div class="rdesc">Ingresos y gastos de hoy</div></div></div>
-    <div class="ro" onclick="rangeMode='semana';exportExcelMovs()"><div style="font-size:26px">📅</div><div><div class="rtit">Movimientos de la semana</div><div class="rdesc">Esta semana — 3 hojas (ingresos, gastos, resumen)</div></div></div>
-    
+    <div class="st" style="margin-top:14px">📥 Lista inquilinaria (Excel)</div>
+    <div class="ro" onclick="exportInqAllPropietarios()"><div style="font-size:26px">📊</div><div><div class="rtit">Lista completa</div><div class="rdesc">${MF[curMes-1]} ${curAnio} · todos los propietarios · una hoja cada uno</div></div></div>
+    ${DB.propietarios.map(p=>`<div class="ro" onclick="exportInqPropietario('${p.id}')" style="padding-left:20px">
+      <div style="font-size:20px">👤</div>
+      <div><div class="rtit">Lista de ${p.nombre}</div><div class="rdesc">Solo inquilinos de ${p.nombre}</div></div>
+    </div>`).join('')}
+
+    <div class="st" style="margin-top:14px">💰 Deudas por inmueble (Excel)</div>
+    <div class="ro" onclick="exportDeudasPorInmueble()"><div style="font-size:26px">💰</div><div><div class="rtit">Todas las deudas</div><div class="rdesc">Por inmueble · tipo (agua/luz/predial/otro) · monto · notas</div></div></div>
+
+    <div class="st" style="margin-top:14px">📈 Movimientos (Excel)</div>
+    <div class="ro" onclick="rangeMode='hoy';exportExcelMovs()"><div style="font-size:22px">📅</div><div><div class="rtit">Movimientos de hoy</div><div class="rdesc">Ingresos y gastos del día</div></div></div>
+    <div class="ro" onclick="rangeMode='semana';exportExcelMovs()"><div style="font-size:22px">📆</div><div><div class="rtit">Movimientos de la semana</div><div class="rdesc">Ingresos, gastos y resumen</div></div></div>
+    <div class="ro" onclick="rangeMode='mes';exportExcelMovs()"><div style="font-size:22px">🗓️</div><div><div class="rtit">Movimientos del mes</div><div class="rdesc">${MF[HM-1]} ${HA}</div></div></div>
+
     <div class="st" style="margin-top:14px">📄 Generar PDF</div>
-    <div class="ro" onclick="openPDFConfig()"><div style="font-size:26px">📈</div><div><div class="rtit">Conciliación diaria/semanal</div><div class="rdesc">Reporte PDF configurable</div></div></div>
-    <div class="ro" onclick="genPDFResumen()"><div style="font-size:26px">📋</div><div><div class="rtit">Resumen Mensual</div><div class="rdesc">Cobros del mes seleccionado</div></div></div>
-    <div class="ro" onclick="genPDFVenc()"><div style="font-size:26px">⚠️</div><div><div class="rtit">Rentas Vencidas</div><div class="rdesc">Lista actual de morosos</div></div></div>
-    
-    <div class="st" style="margin-top:14px">🏗️ Reportes con fotos</div>
-    <div class="ro" onclick="openObraForm()"><div style="font-size:26px">🔨</div><div><div class="rtit">Nuevo reporte de obra</div><div class="rdesc">Pintura, plomería, cerrajería, limpieza...</div></div></div>
-    <div class="ro" onclick="openIncidenteForm()"><div style="font-size:26px">🚨</div><div><div class="rtit">Nuevo reporte de incidente</div><div class="rdesc">Con número de folio automático</div></div></div>
-    
-    <div class="st" style="margin-top:14px">🏠 Inspección de departamento</div>
-    <div class="ro" onclick="genPDFInspeccionVacia()"><div style="font-size:26px">📥</div><div><div class="rtit">Descargar formato en blanco</div><div class="rdesc">PDF para imprimir y llenar a mano</div></div></div>
-    <div class="ro" onclick="openInspeccionForm()"><div style="font-size:26px">✏️</div><div><div class="rtit">Nueva inspección interactiva</div><div class="rdesc">Llenar aquí · calificación automática</div></div></div>
-    ${(()=>{
-      const insps=DB.inspecciones.filter(inCartera).slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
-      if(insps.length===0)return'';
-      const showAll=expandedInm['__insp_hist'];
-      const recent=insps.slice(0,3);
-      const older=insps.slice(3);
-      let h=`<div class="st-sm">Inspecciones recientes (${recent.length}${older.length?' de '+insps.length:''})</div>`;
-      h+=recent.map(ins=>{const calColor=ins.porcentaje>=80?'#5CB87A':ins.porcentaje>=60?'#E0B840':ins.porcentaje>=40?'#E58A2C':'#E05C5C';
-        return`<div class="ti" onclick="viewInspeccion('${ins.id}')"><div class="av" style="background:${calColor};font-size:11px;font-weight:700">${(ins.porcentaje||0).toFixed(0)}%</div>
-        <div class="tn"><div class="tnm">${ins.inmueble}</div><div class="ts">${new Date(ins.fecha).toLocaleDateString('es-MX')} · ${(ins.score||0).toFixed(1)}/${ins.score_max||100}${ins.fotos?.length?' · '+ins.fotos.length+' fotos':''}</div></div>
-        <span style="font-size:18px">📄</span></div>`;}).join('');
-      if(older.length){
-        h+=`<div class="st-sm" style="opacity:.7;margin-top:6px">Historial (${older.length}) · <span style="color:var(--gold);cursor:pointer" onclick="toggleHistory('__insp_hist')">${showAll?'ocultar':'ver todo'}</span></div>`;
-        if(showAll)h+=older.map(ins=>{const calColor=ins.porcentaje>=80?'#5CB87A':ins.porcentaje>=60?'#E0B840':ins.porcentaje>=40?'#E58A2C':'#E05C5C';
-          return`<div class="ti" onclick="viewInspeccion('${ins.id}')" style="opacity:.85"><div class="av" style="background:${calColor};font-size:11px;font-weight:700">${(ins.porcentaje||0).toFixed(0)}%</div>
-          <div class="tn"><div class="tnm">${ins.inmueble}</div><div class="ts">${new Date(ins.fecha).toLocaleDateString('es-MX')} · ${(ins.score||0).toFixed(1)}/${ins.score_max||100}</div></div>
-          <span style="font-size:14px;color:var(--dim)">›</span></div>`;}).join('');
-      }
-      return h;
-    })()}
-    
-    ${(()=>{
-      const obras=DB.obras.filter(inCartera).slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
-      if(obras.length===0)return'';
-      const showAll=expandedInm['__obras_hist'];
-      const recent=obras.slice(0,3);
-      const older=obras.slice(3);
-      let h=`<div class="st-sm">Obras recientes (${recent.length}${older.length?' de '+obras.length:''})</div>`;
-      h+=recent.map(o=>{const t=TIPOS_OBRA[o.tipo]||TIPOS_OBRA.otros;
-        return`<div class="ti" onclick="openObraDetail('${o.id}')"><div class="av" style="background:var(--gdim);font-size:18px">${t.i}</div>
-        <div class="tn"><div class="tnm">${t.n}${o.inmueble?' · '+o.inmueble:''}</div><div class="ts">${new Date(o.fecha).toLocaleDateString('es-MX')} · ${fmt(o.costo)}${o.fotos?.length?' · '+o.fotos.length+' fotos':''}</div></div>
-        <span style="font-size:18px">📄</span></div>`;}).join('');
-      if(older.length){
-        h+=`<div class="st-sm" style="opacity:.7;margin-top:6px">Historial (${older.length}) · <span style="color:var(--gold);cursor:pointer" onclick="toggleHistory('__obras_hist')">${showAll?'ocultar':'ver todo'}</span></div>`;
-        if(showAll)h+=older.map(o=>{const t=TIPOS_OBRA[o.tipo]||TIPOS_OBRA.otros;
-          return`<div class="ti" onclick="openObraDetail('${o.id}')" style="opacity:.85"><div class="av" style="background:#444;font-size:18px">${t.i}</div>
-          <div class="tn"><div class="tnm">${t.n}${o.inmueble?' · '+o.inmueble:''}</div><div class="ts">${new Date(o.fecha).toLocaleDateString('es-MX')} · ${fmt(o.costo)}</div></div>
-          <span style="font-size:14px;color:var(--dim)">›</span></div>`;}).join('');
-      }
-      return h;
-    })()}
-    
-    ${incActivos.length>0?`<div class="st-sm">⚠️ Incidentes activos (${incActivos.length})</div>`:''}
-    ${incActivos.slice(-8).reverse().map(i=>{const n=NIVELES_INC.find(x=>x.k===i.nivel)||NIVELES_INC[0];
-      return`<div class="ti" onclick="openIncidenteDetail('${i.id}')"><div class="av" style="background:${n.c};font-size:11px">${i.numero?.split('-')[1]||'?'}</div>
-      <div class="tn"><div class="tnm">${i.numero||'?'}</div><div class="ts">${i.lugar||'—'} · ${new Date(i.fecha).toLocaleDateString('es-MX')} · ${n.n}</div></div>
-      <span style="font-size:18px">📄</span></div>`;}).join('')}
-    
-    ${incResueltos.length>0?`<div class="st-sm" style="opacity:.7">✓ Historial de resueltos (${incResueltos.length}) · <span style="color:var(--gold);cursor:pointer" onclick="toggleResueltosView()">${expandedInm['__resueltos']?'ocultar':'mostrar'}</span></div>`:''}
-    ${incResueltos.length>0&&expandedInm['__resueltos']?incResueltos.sort((a,b)=>new Date(b.fecha_resolucion||0)-new Date(a.fecha_resolucion||0)).map(i=>{const n=NIVELES_INC.find(x=>x.k===i.nivel)||NIVELES_INC[0];
-      return`<div class="ti" onclick="openIncidenteDetail('${i.id}')" style="opacity:.7"><div class="av" style="background:#5CB87A;font-size:11px">✓</div>
-      <div class="tn"><div class="tnm">${i.numero||'?'} <span style="font-size:10px;color:var(--g)">resuelto</span></div><div class="ts">${i.lugar||'—'} · ${new Date(i.fecha).toLocaleDateString('es-MX')} → ${i.fecha_resolucion?new Date(i.fecha_resolucion).toLocaleDateString('es-MX'):'?'} · ${n.n}</div></div>
-      <span style="font-size:14px;color:var(--dim)">›</span></div>`;}).join(''):''}
-
-    <div class="st" style="margin-top:14px">👤 Historial individual</div>
-    <input class="fi" id="rep-search" placeholder="🔍 Buscar inquilino..." oninput="renderRepInqList()" style="margin-bottom:10px">
-    <div id="rep-inq-list"></div>
-    
-    <div class="st" style="margin-top:14px">📁 Carteras (multi-cliente)</div>
-    <div class="ro" onclick="openCarteraPicker()"><div style="font-size:26px">📁</div><div><div class="rtit">Administrar carteras</div><div class="rdesc">Cambiar de cartera activa, agregar cliente nuevo, editar</div></div></div>
+    <div class="ro" onclick="openPDFConfig()"><div style="font-size:22px">📈</div><div><div class="rtit">Conciliación</div><div class="rdesc">Reporte PDF configurable</div></div></div>
+    <div class="ro" onclick="genPDFResumen()"><div style="font-size:22px">📋</div><div><div class="rtit">Resumen Mensual</div><div class="rdesc">Cobros del mes</div></div></div>
+    <div class="ro" onclick="genPDFVenc()"><div style="font-size:22px">⚠️</div><div><div class="rtit">Rentas Vencidas</div><div class="rdesc">Lista actual de morosos</div></div></div>
+    <div class="ro" onclick="genPDFInspeccionVacia()"><div style="font-size:22px">🏠</div><div><div class="rtit">Formato inspección en blanco</div><div class="rdesc">Para imprimir y llenar a mano</div></div></div>
 
     <div class="st" style="margin-top:14px">☁️ Cuenta</div>
-    <div class="ro" onclick="signOutCloud()" id="logout-row" style="${currentUser?'':'display:none'}"><div style="font-size:24px">👤</div><div><div class="rtit">${currentUser?.email||'No conectado'}</div><div class="rdesc">Cerrar sesión / cambiar cuenta</div></div></div>
+    <div class="ro" onclick="signOutCloud()" id="logout-row" style="${currentUser?'':'display:none'}"><div style="font-size:22px">👤</div><div><div class="rtit">${currentUser?.email||'No conectado'}</div><div class="rdesc">Cerrar sesión</div></div></div>
+
     <div class="st" style="margin-top:14px">⚙️ Datos</div>
-    <div class="ro" onclick="exportFullBackup()"><div style="font-size:24px">💾</div><div><div class="rtit">Respaldo completo</div><div class="rdesc">JSON con todos los datos</div></div></div>
-    <div class="ro" onclick="smartImportInquilinos()"><div style="font-size:24px">🔄</div><div><div class="rtit">Actualizar inquilinos desde JSON</div><div class="rdesc">Mantiene pagos · empareja por nombre+inmueble</div></div></div>
-    <div class="ro" onclick="importJSON()"><div style="font-size:24px">📤</div><div><div class="rtit">Importar respaldo (reemplazar)</div><div class="rdesc">Cargar JSON previo · sobrescribe TODO</div></div></div>
-    <div class="ro" onclick="resetAll()"><div style="font-size:24px">🗑️</div><div><div class="rtit">Borrar todo</div><div class="rdesc" style="color:var(--r)">Datos locales (irreversible)</div></div></div>`;
-  renderRepInqList();
+    <div class="ro" onclick="exportFullBackup()"><div style="font-size:22px">💾</div><div><div class="rtit">Respaldo completo (JSON)</div><div class="rdesc">Todos los datos</div></div></div>
+    <div class="ro" onclick="smartImportInquilinos()"><div style="font-size:22px">🔄</div><div><div class="rtit">Actualizar inquilinos desde JSON</div><div class="rdesc">Preserva pagos · empareja por nombre+inmueble</div></div></div>
+    <div class="ro" onclick="importJSON()"><div style="font-size:22px">📤</div><div><div class="rtit">Importar respaldo (reemplazar)</div><div class="rdesc">Sobrescribe TODO</div></div></div>
+    <div class="ro" onclick="resetAll()"><div style="font-size:22px">🗑️</div><div><div class="rtit">Borrar todo</div><div class="rdesc" style="color:var(--r)">Datos locales (irreversible)</div></div></div>`;
+}
+
+// ─── EXPORT DEUDAS POR INMUEBLE ─────────
+function exportDeudasPorInmueble(){
+  try{
+    const wb=XLSX.utils.book_new();
+    // Sheet global: todas las deudas
+    const rows=[['PROPIETARIO','INMUEBLE','TIPO','CUENTA','DEUDA ACUMULADA','NOTAS']];
+    let totalGlobal=0;
+    DB.inmuebles.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).forEach(inm=>{
+      const prop=getPropietario(inm.propietarioId);
+      const propName=prop?.nombre||'—';
+      // Predial (1 por inmueble)
+      if(inm.cuenta_predial){
+        // Get servicio type predial for this inmueble
+        const svcPredial=DB.servicios.find(s=>s.inmueble===inm.nombre&&s.tipo==='predial');
+        const deuda=svcPredial?Math.max(0,getServicioBalance(svcPredial.id)):0;
+        rows.push([propName,inm.nombre,'Predial',inm.cuenta_predial,deuda,inm.notas||'']);
+        totalGlobal+=deuda;
+      }
+      // Agua (1 por inmueble)
+      if(inm.cuenta_agua){
+        const svcAgua=DB.servicios.find(s=>s.inmueble===inm.nombre&&s.tipo==='agua');
+        const deuda=svcAgua?Math.max(0,getServicioBalance(svcAgua.id)):0;
+        rows.push([propName,inm.nombre,'Agua',inm.cuenta_agua,deuda,'']);
+        totalGlobal+=deuda;
+      }
+      // Luz por depto (de inquilinos)
+      const tenants=DB.inquilinos.filter(t=>t.inmuebleId===inm.id||t.inmueble===inm.nombre);
+      tenants.forEach(t=>{
+        if(t.cuenta_luz){
+          const svcLuz=DB.servicios.find(s=>s.inmueble===inm.nombre&&s.tipo==='luz'&&s.cuenta===t.cuenta_luz);
+          const deuda=svcLuz?Math.max(0,getServicioBalance(svcLuz.id)):0;
+          rows.push([propName,inm.nombre+' Int '+(t.interior||'—'),'Luz',t.cuenta_luz,deuda,t.nombre]);
+          totalGlobal+=deuda;
+        }
+      });
+      // Otros servicios sin inmueble.cuenta_*
+      DB.servicios.filter(s=>s.inmueble===inm.nombre&&!['predial','agua','luz'].includes(s.tipo)).forEach(sv=>{
+        const deuda=Math.max(0,getServicioBalance(sv.id));
+        rows.push([propName,inm.nombre,'Otro ('+(TIPOS_SVC[sv.tipo]?.n||sv.tipo)+')',sv.cuenta||'',deuda,sv.notas||'']);
+        totalGlobal+=deuda;
+      });
+    });
+    rows.push([]);
+    rows.push(['','','','TOTAL:',totalGlobal,'']);
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{wch:15},{wch:18},{wch:12},{wch:16},{wch:14},{wch:30}];
+    XLSX.utils.book_append_sheet(wb,ws,'Deudas');
+    // Sheets por inmueble
+    DB.inmuebles.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).forEach(inm=>{
+      const filas=rows.filter((r,i)=>i===0||r[1]===inm.nombre||(r[1]||'').startsWith(inm.nombre+' '));
+      if(filas.length>1){
+        const wsInm=XLSX.utils.aoa_to_sheet(filas);
+        wsInm['!cols']=[{wch:15},{wch:18},{wch:12},{wch:16},{wch:14},{wch:30}];
+        const shName=(inm.nombre||'').slice(0,28).replace(/[/\\?*:\[\]]/g,'_');
+        XLSX.utils.book_append_sheet(wb,wsInm,shName);
+      }
+    });
+    XLSX.writeFile(wb,`deudas_inmuebles_${todayISO()}.xlsx`);
+    snack('✓ Excel de deudas descargado');
+  }catch(e){console.error(e);snack('Error: '+e.message);}
+}
+
+function exportInqAllPropietarios(){
+  try{
+    const wb=XLSX.utils.book_new();
+    DB.propietarios.forEach(p=>{
+      const tenants=DB.inquilinos.filter(t=>t.propietarioId===p.id&&t.estado==='activo').sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')||(a.dia||0)-(b.dia||0));
+      const rows=[['NOMBRE','INMUEBLE','INTERIOR','DÍA COBRO','RENTA','DESTINO','CTA LUZ','ESTATUS','PAGADO','FECHA PAGO','MÉTODO']];
+      tenants.forEach(t=>{
+        const pg=getPago(t.id,curMes,curAnio);
+        rows.push([t.nombre,t.inmueble||'',t.interior||'',t.dia||'',t.renta||0,t.destino||'',t.cuenta_luz||'',t.estatus||'',pg?'Sí':'',pg?.fecha_pago?new Date(pg.fecha_pago).toLocaleDateString('es-MX'):'',pg?.metodo||'']);
+      });
+      const ws=XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols']=[{wch:28},{wch:14},{wch:8},{wch:10},{wch:10},{wch:10},{wch:14},{wch:14},{wch:8},{wch:12},{wch:12}];
+      const shName=(p.nombre||'').slice(0,28).replace(/[/\\?*:\[\]]/g,'_');
+      XLSX.utils.book_append_sheet(wb,ws,shName||'sin_nombre');
+    });
+    XLSX.writeFile(wb,`inquilinos_${MN[curMes-1]}_${curAnio}.xlsx`);
+    snack('✓ Excel descargado');
+  }catch(e){console.error(e);snack('Error: '+e.message);}
+}
+
+function exportInqPropietario(propId){
+  try{
+    const p=getPropietario(propId);if(!p)return;
+    const wb=XLSX.utils.book_new();
+    const tenants=DB.inquilinos.filter(t=>t.propietarioId===propId&&t.estado==='activo').sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')||(a.dia||0)-(b.dia||0));
+    const rows=[['NOMBRE','INMUEBLE','INTERIOR','DÍA COBRO','RENTA','DESTINO','CTA LUZ','ESTATUS','PAGADO','FECHA PAGO']];
+    tenants.forEach(t=>{
+      const pg=getPago(t.id,curMes,curAnio);
+      rows.push([t.nombre,t.inmueble||'',t.interior||'',t.dia||'',t.renta||0,t.destino||'',t.cuenta_luz||'',t.estatus||'',pg?'Sí':'',pg?.fecha_pago?new Date(pg.fecha_pago).toLocaleDateString('es-MX'):'']);
+    });
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{wch:28},{wch:14},{wch:8},{wch:10},{wch:10},{wch:10},{wch:14},{wch:14},{wch:8},{wch:12}];
+    XLSX.utils.book_append_sheet(wb,ws,p.nombre.slice(0,28));
+    XLSX.writeFile(wb,`inquilinos_${p.nombre.toLowerCase()}_${MN[curMes-1]}_${curAnio}.xlsx`);
+    snack('✓ Excel de '+p.nombre+' descargado');
+  }catch(e){console.error(e);snack('Error: '+e.message);}
+}
+
+// ─── DOWNLOAD TENANT PDF ─────
+function downloadTenantPDF(id){
+  const t=DB.inquilinos.find(x=>x.id===id);if(!t)return;
+  const propObj=getPropietario(t.propietarioId);
+  const doc=pdfBase('HISTORIAL — '+(t.nombre||'').toUpperCase());
+  let y=45;
+  doc.setTextColor(80,80,80);doc.setFont('helvetica','normal');doc.setFontSize(9);
+  doc.text('Propietario: '+(propObj?.nombre||'—'),14,y);y+=5;
+  doc.text('Inmueble: '+(t.inmueble||'—')+(t.interior?' Int '+t.interior:''),14,y);y+=5;
+  doc.text('Renta: '+fmt(t.renta||0)+' · Día pago: '+(t.dia||'—'),14,y);y+=5;
+  doc.text('Cuenta luz: '+(t.cuenta_luz||'—'),14,y);y+=5;
+  doc.text('Estatus: '+(t.estatus||'—'),14,y);y+=8;
+  // Historial de pagos
+  doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(40,40,40);
+  doc.text('Historial de pagos',14,y);y+=6;
+  const pagos=DB.pagos.filter(p=>p.iid===id&&p.pagado).sort((a,b)=>new Date(b.fecha_pago||0)-new Date(a.fecha_pago||0));
+  if(pagos.length===0){doc.setFont('helvetica','italic');doc.setFontSize(9);doc.setTextColor(120,120,120);doc.text('(Sin pagos registrados)',14,y);y+=8;}
+  else{
+    doc.setFillColor(91,155,213);doc.rect(14,y,182,7,'F');
+    doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(9);
+    doc.text('MES PAGADO',16,y+5);doc.text('FECHA',68,y+5);doc.text('MONTO',110,y+5,'right');doc.text('DESTINO',140,y+5,'right');doc.text('MÉTODO',180,y+5,'right');y+=8;
+    pagos.forEach((p,i)=>{if(y>275){doc.addPage();y=20;}
+      doc.setFillColor(i%2===0?248:255,i%2===0?248:255,i%2===0?248:255);doc.rect(14,y-3,182,6,'F');
+      doc.setTextColor(40,40,40);doc.setFont('helvetica','normal');doc.setFontSize(8.5);
+      doc.text(MF[p.mes-1]+' '+p.anio,16,y);
+      doc.text(p.fecha_pago?new Date(p.fecha_pago).toLocaleDateString('es-MX'):'—',68,y);
+      doc.setFont('helvetica','bold');doc.text(fmt(p.monto),110,y,'right');doc.setFont('helvetica','normal');
+      doc.text(p.destino||'—',140,y,'right');doc.text(p.metodo||'efectivo',180,y,'right');y+=6;
+    });
+    y+=4;
+  }
+  // Incidentes del depto
+  const lugarSearch=(t.inmueble||'').toLowerCase()+(t.interior?' '+t.interior:'');
+  const incs=DB.incidentes.filter(x=>(x.lugar||'').toLowerCase().includes((t.inmueble||'').toLowerCase())||(x.inqId===id)).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+  if(incs.length>0){
+    if(y>250){doc.addPage();y=20;}
+    doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(40,40,40);
+    doc.text('Incidentes relacionados ('+incs.length+')',14,y);y+=6;
+    incs.slice(0,10).forEach(i=>{if(y>275){doc.addPage();y=20;}
+      doc.setFont('helvetica','normal');doc.setFontSize(8.5);doc.setTextColor(60,60,60);
+      doc.text('#'+(i.numero||'?')+' — '+new Date(i.fecha).toLocaleDateString('es-MX')+' — '+(i.descripcion||'').slice(0,80),14,y);
+      if(i.resuelto){doc.setTextColor(40,130,70);doc.text('✓',195,y);}else{doc.setTextColor(200,60,60);doc.text('●',195,y);}
+      y+=5;
+    });
+  }
+  doc.save('historial_'+(t.nombre||'').replace(/\s+/g,'_')+'.pdf');snack('PDF descargado');
 }
 
 function toggleResueltosView(){
