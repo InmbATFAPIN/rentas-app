@@ -505,6 +505,8 @@ function subscribeToCloud() {
       }
       DB[k] = cloudItems;
       saveDBLocal(k);
+      // Re-run propietarios migration in case cloud data was pre-refactor
+      migrateToPropietarios();
       setCloudStatus('synced','☁️ Actualizado · ' + new Date().toLocaleTimeString('es-MX'));
       rerender();
     }, err => {
@@ -515,14 +517,9 @@ function subscribeToCloud() {
   });
 }
 
-function rerender() {
-  if (curView === 'dash') renderDash();
-  else if (curView === 'con') renderCon();
-  else if (curView === 'inq') renderInqList?.() || renderInq();
-  else if (curView === 'rep') renderRep();
-  else if (curView === 'svc') renderSvc();
-  else if (curView === 'det') renderDet();
-  updNotif();
+function _rerender_old_deprecated() {
+  // superseded by newer rerender() defined below
+  return;
 }
 
 // Local-only save (was previously called saveDB)
@@ -604,81 +601,151 @@ function getPropietarioInquilinos(propId,soloActivos){
   return list;
 }
 function migrateToPropietarios(){
-  // 1. Create propietario entities from existing inquilino.propietario strings
-  const nombres=[...new Set(DB.inquilinos.map(i=>(i.propietario||'').trim()).filter(Boolean))];
-  nombres.forEach(nombre=>{
-    const nUp=nombre.toUpperCase();
+  const log=[];
+  let changed=false;
+
+  // 1. Create propietario entities from EVERY source (inquilinos + inmuebles)
+  const nombresSet=new Set();
+  DB.inquilinos.forEach(i=>{if(i.propietario)nombresSet.add(String(i.propietario).trim().toUpperCase());});
+  DB.inmuebles.forEach(i=>{if(i.propietario)nombresSet.add(String(i.propietario).trim().toUpperCase());});
+  nombresSet.forEach(nUp=>{
+    if(!nUp)return;
     const id='prop_'+nUp.toLowerCase().replace(/[^a-z0-9]/g,'_');
-    if(!DB.propietarios.find(p=>p.id===id||(p.nombre||'').toUpperCase()===nUp)){
+    if(!DB.propietarios.find(p=>p.id===id||(p.nombre||'').trim().toUpperCase()===nUp)){
       DB.propietarios.push({
         id,nombre:nUp,contacto:'',telefono:'',correo:'',
         notas:'Migrado desde datos previos',
         fecha_inicio:todayISO(),creado:nowISO()
       });
+      changed=true;log.push('Creado propietario: '+nUp);
     }
   });
+
+  // Helper: robust propietario lookup by name (case-insensitive)
+  const findPropId=(nombre)=>{
+    if(!nombre)return null;
+    const nUp=String(nombre).trim().toUpperCase();
+    const p=DB.propietarios.find(x=>(x.nombre||'').trim().toUpperCase()===nUp);
+    return p?p.id:null;
+  };
+
   // 2. inquilinos: string propietario -> propietarioId
+  let inqMig=0;
   DB.inquilinos.forEach(i=>{
     if(i.propietario&&!i.propietarioId){
-      const p=getPropietarioByName(i.propietario);
-      if(p)i.propietarioId=p.id;
+      const pid=findPropId(i.propietario);
+      if(pid){i.propietarioId=pid;changed=true;inqMig++;}
     }
   });
-  // 3. inmuebles: derive propietarioId from tenants + create missing inmueble entities
-  const inmMap={};
+  if(inqMig)log.push('Inquilinos asignados propietarioId: '+inqMig);
+
+  // 3. inmuebles: FIX propietarioId first (from string field OR from inquilinos)
+  let inmFixed=0;
+  DB.inmuebles.forEach(inm=>{
+    if(!inm.propietarioId){
+      // Try string field first
+      if(inm.propietario){
+        const pid=findPropId(inm.propietario);
+        if(pid){inm.propietarioId=pid;changed=true;inmFixed++;}
+      }
+      // Fallback: get from any tenant of this inmueble
+      if(!inm.propietarioId){
+        const tenant=DB.inquilinos.find(t=>(t.inmueble===inm.nombre||t.inmuebleId===inm.id)&&t.propietarioId);
+        if(tenant){inm.propietarioId=tenant.propietarioId;changed=true;inmFixed++;}
+      }
+    }
+    if(!inm.id){
+      inm.id='inm_'+(inm.nombre||'').toLowerCase().replace(/[^a-z0-9]/g,'_')+'_'+Math.random().toString(36).slice(2,5);
+      changed=true;
+    }
+  });
+  if(inmFixed)log.push('Inmuebles con propietarioId corregido: '+inmFixed);
+
+  // 4. Create MISSING inmueble entities from inquilinos (this was the main bug)
+  const inmMap={}; // nombre_upper -> propietarioId
   DB.inquilinos.forEach(i=>{
-    if(i.inmueble&&i.propietarioId&&!inmMap[i.inmueble]){
-      inmMap[i.inmueble]=i.propietarioId;
+    if(i.inmueble&&i.propietarioId){
+      const key=String(i.inmueble).trim().toUpperCase();
+      if(!inmMap[key])inmMap[key]=i.propietarioId;
     }
   });
-  Object.entries(inmMap).forEach(([nom,propId])=>{
-    let inmObj=DB.inmuebles.find(x=>x.nombre===nom);
+  let inmCreated=0;
+  Object.entries(inmMap).forEach(([nomUp,propId])=>{
+    // Check if inmueble exists (case-insensitive)
+    let inmObj=DB.inmuebles.find(x=>(x.nombre||'').trim().toUpperCase()===nomUp);
     if(!inmObj){
-      inmObj={id:'inm_'+nom.toLowerCase().replace(/[^a-z0-9]/g,'_'),nombre:nom,notas:'',creado:nowISO()};
+      // Use original casing from an inquilino
+      const originalName=DB.inquilinos.find(i=>String(i.inmueble||'').trim().toUpperCase()===nomUp)?.inmueble||nomUp;
+      inmObj={
+        id:'inm_'+nomUp.toLowerCase().replace(/[^a-z0-9]/g,'_')+'_'+Math.random().toString(36).slice(2,5),
+        nombre:originalName,
+        propietarioId:propId,
+        direccion:'',cuenta_predial:'',cuenta_agua:'',
+        notas:'Migrado automaticamente',creado:nowISO()
+      };
       DB.inmuebles.push(inmObj);
+      changed=true;inmCreated++;
     }
-    if(!inmObj.propietarioId)inmObj.propietarioId=propId;
-    if(!inmObj.id)inmObj.id='inm_'+(inmObj.nombre||'').toLowerCase().replace(/[^a-z0-9]/g,'_');
   });
-  // 4. Link inquilinos to inmueble entity (inmuebleId)
+  if(inmCreated)log.push('Inmuebles creados desde inquilinos: '+inmCreated);
+
+  // 5. Link inquilinos to inmueble entity (inmuebleId)
+  let linked=0;
   DB.inquilinos.forEach(i=>{
     if(i.inmueble&&!i.inmuebleId){
-      const inm=DB.inmuebles.find(x=>x.nombre===i.inmueble);
-      if(inm)i.inmuebleId=inm.id;
+      const nomUp=String(i.inmueble).trim().toUpperCase();
+      const inm=DB.inmuebles.find(x=>(x.nombre||'').trim().toUpperCase()===nomUp);
+      if(inm){i.inmuebleId=inm.id;changed=true;linked++;}
     }
   });
-  // 5. gastos, obras, incidentes, inspecciones, otros_ingresos: derive propietarioId from inmueble
-  ['gastos','obras','otros_ingresos','inspecciones'].forEach(k=>{
-    DB[k].forEach(x=>{
+  if(linked)log.push('Inquilinos enlazados a inmueble: '+linked);
+
+  // 6. Otros items (gastos, obras, etc): derive propietarioId from inmueble name
+  ['gastos','obras','otros_ingresos','inspecciones','servicios'].forEach(k=>{
+    let n=0;
+    (DB[k]||[]).forEach(x=>{
       if(x.inmueble&&!x.propietarioId){
-        const inm=DB.inmuebles.find(y=>y.nombre===x.inmueble);
-        if(inm&&inm.propietarioId)x.propietarioId=inm.propietarioId;
+        const nomUp=String(x.inmueble).trim().toUpperCase();
+        const inm=DB.inmuebles.find(y=>(y.nombre||'').trim().toUpperCase()===nomUp);
+        if(inm&&inm.propietarioId){x.propietarioId=inm.propietarioId;changed=true;n++;}
       }
     });
+    if(n)log.push(k+' asignados: '+n);
   });
-  // 6. incidentes: try to match by lugar (inmueble name)
+
+  // 7. incidentes: match by lugar
+  let incMig=0;
   DB.incidentes.forEach(x=>{
-    if(!x.propietarioId&&x.lugar){
-      const lugarLow=x.lugar.toLowerCase();
-      const inm=DB.inmuebles.find(y=>lugarLow.includes((y.nombre||'').toLowerCase())||(y.nombre||'').toLowerCase().includes(lugarLow));
-      if(inm&&inm.propietarioId)x.propietarioId=inm.propietarioId;
-      else if(x.inqId){
+    if(!x.propietarioId){
+      if(x.lugar){
+        const lugarLow=x.lugar.toLowerCase();
+        const inm=DB.inmuebles.find(y=>lugarLow.includes((y.nombre||'').toLowerCase())||(y.nombre||'').toLowerCase().includes(lugarLow));
+        if(inm&&inm.propietarioId){x.propietarioId=inm.propietarioId;changed=true;incMig++;}
+      }
+      if(!x.propietarioId&&x.inqId){
         const inq=DB.inquilinos.find(y=>y.id===x.inqId);
-        if(inq&&inq.propietarioId)x.propietarioId=inq.propietarioId;
+        if(inq&&inq.propietarioId){x.propietarioId=inq.propietarioId;changed=true;incMig++;}
       }
     }
   });
-  // 7. servicios: derive from inmueble
-  DB.servicios.forEach(s=>{
-    if(s.inmueble&&!s.propietarioId){
-      const inm=DB.inmuebles.find(y=>y.nombre===s.inmueble);
-      if(inm&&inm.propietarioId)s.propietarioId=inm.propietarioId;
-    }
-  });
-  // Save migrated collections
+  if(incMig)log.push('Incidentes: '+incMig);
+
+  if(log.length>0){
+    console.log('[Migration] Applied:',log);
+  }
+
+  // Save migrated collections locally always
   ['inquilinos','inmuebles','gastos','obras','incidentes','otros_ingresos','inspecciones','servicios','propietarios'].forEach(k=>{
-    saveDBLocal(k);cloudSaveDebounced(k);
+    saveDBLocal(k);
   });
+  // If anything changed AND we're logged in, push to cloud so migration persists across devices
+  if(changed&&currentUser){
+    console.log('[Migration] Pushing to cloud');
+    ['inquilinos','inmuebles','gastos','obras','incidentes','otros_ingresos','inspecciones','servicios','propietarios'].forEach(k=>{
+      cloudSaveDebounced(k);
+    });
+  }
+  return changed;
 }
 
 // ─── CARTERAS (deprecado — cartera bar oculta, sin filtro activo) ─
