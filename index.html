@@ -237,7 +237,6 @@ textarea.fi{resize:vertical;min-height:60px}
     <button class="ni" id="n-con" onclick="go('con')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Gestión</button>
     <button class="ni" id="n-rep" onclick="go('rep')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Back office</button>
   </nav>
-  <button class="fab" id="fab" onclick="handleFAB()">+</button>
   <div id="modal-root"></div>
   <div class="snk" id="snk"></div>
 </div>
@@ -879,6 +878,7 @@ function nextIncidentNum(){
 function getRange(mode){
   const t=new Date();t.setHours(0,0,0,0);
   if(mode==='hoy')return{ini:t,fin:new Date(t.getTime()+86400000-1),label:'Hoy '+t.toLocaleDateString('es-MX')};
+  if(mode==='3dias'){const i=new Date(t.getTime()-2*86400000);return{ini:i,fin:new Date(t.getTime()+86400000-1),label:'Últimos 3 días'};}
   if(mode==='ayer'){const a=new Date(t.getTime()-86400000);return{ini:a,fin:new Date(t.getTime()-1),label:'Ayer '+a.toLocaleDateString('es-MX')};}
   if(mode==='semana'){const d=t.getDay()||7;const ini=new Date(t.getTime()-(d-1)*86400000);return{ini,fin:new Date(t.getTime()+86400000-1),label:'Esta semana'};}
   if(mode==='sem_pas'){const d=t.getDay()||7;const ini=new Date(t.getTime()-(d-1+7)*86400000);const fin=new Date(ini.getTime()+7*86400000-1);return{ini,fin,label:'Semana pasada'};}
@@ -892,9 +892,8 @@ function go(v){
   document.querySelectorAll(".view").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".ni").forEach(x=>x.classList.remove("on"));
   curView=v;
-  const fab=document.getElementById("fab");
   const hdra=document.getElementById("hdr-a");
-  hdra.innerHTML="";fab.style.display="none";
+  hdra.innerHTML="";
   if(v==="det"){
     document.getElementById("v-det").classList.add("on");
     document.getElementById("hdr-t").textContent=detTenant?.nombre||"Inquilino";
@@ -909,14 +908,8 @@ function go(v){
   document.getElementById(nm[v])?.classList.add("on");
   document.getElementById("hdr-t").textContent=tt[v]||"";
   document.getElementById("hdr-s").textContent="";
-  if(v==="inq")fab.style.display="flex";
-  if(v==="con"&&conSub==='gastos')fab.style.display="flex";
   ({dash:renderDash,con:renderCon,inq:renderInq,rep:renderRep})[v]?.();
   updNotif();
-}
-function handleFAB(){
-  if(curView==="inq")openEditTenant();
-  else if(curView==="con"&&conSub==='gastos')openAddGasto();
 }
 function updNotif(){
   const n=DB.inquilinos.filter(i=>i.estado==="activo"&&inCartera(i)&&isLate(i.id,HM,HA)).length;
@@ -1190,31 +1183,36 @@ function delPropietario(id){
 
 // ─── CONCILIACIÓN ──────────────────────────────────────
 function renderCon(){
-  // GESTIÓN — quick actions + activity feed
-  document.getElementById('fab').style.display='flex';
-  // Recent items (last 30 days) combined
-  const now=new Date();
-  const cutoff=new Date(now.getTime()-30*86400000);
-  const feed=[];
-  DB.gastos.forEach(g=>{const d=new Date(g.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'gasto',fecha:d,item:g});});
-  DB.otros_ingresos.forEach(o=>{const d=new Date(o.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'otro_ing',fecha:d,item:o});});
-  DB.obras.forEach(o=>{const d=new Date(o.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'obra',fecha:d,item:o});});
-  DB.incidentes.forEach(i=>{const d=new Date(i.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'incidente',fecha:d,item:i});});
-  DB.inspecciones.forEach(i=>{const d=new Date(i.fecha);if(!isNaN(d)&&d>=cutoff)feed.push({tipo:'inspeccion',fecha:d,item:i});});
-  feed.sort((a,b)=>b.fecha-a.fecha);
-  // Filter by propietario
-  let feedFiltered=feed;
-  if(propFilter!=='todos'){
-    const p=getPropietarioByName(propFilter);
-    if(p)feedFiltered=feed.filter(f=>f.item.propietarioId===p.id);
-  }
-  // Bitácora hoy
+  // GESTIÓN — acciones rápidas + conciliación por rango + bitácora
   const b=getBitacoraHoyResumen();
   const proxProg=b.progActivos[0];
   const totalPendBit=b.pendActivos.length+b.progActivos.length;
 
+  // ── Conciliación: rango + filtro propietario ──
+  const r=getRange(rangeMode);
+  const propSel=propFilter!=='todos'?getPropietarioByName(propFilter):null;
+  const inRango=(fecha)=>{if(!fecha)return false;const d=new Date(fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;};
+  const matchProp=(item)=>!propSel||item.propietarioId===propSel.id;
+  const matchPropPago=(p)=>{if(!propSel)return true;const t=DB.inquilinos.find(i=>i.id===p.iid);return t&&t.propietarioId===propSel.id;};
+
+  const pagosR=DB.pagos.filter(p=>p.pagado&&inRango(p.fecha_pago)&&matchPropPago(p));
+  const otrosR=DB.otros_ingresos.filter(o=>inRango(o.fecha)&&matchProp(o));
+  const gastosR=DB.gastos.filter(g=>inRango(g.fecha)&&matchProp(g));
+  const totalPagos=pagosR.reduce((s,p)=>s+Number(p.monto||0),0);
+  const totalOtros=otrosR.reduce((s,o)=>s+Number(o.monto||0),0);
+  const totalIng=totalPagos+totalOtros;
+  const totalGas=gastosR.reduce((s,g)=>s+Number(g.monto||0),0);
+  const neto=totalIng-totalGas;
+
+  // Movimientos combinados ordenados desc
+  const movs=[];
+  pagosR.forEach(p=>movs.push({tipo:'pago',fecha:new Date(p.fecha_pago),item:p}));
+  otrosR.forEach(o=>movs.push({tipo:'otro',fecha:new Date(o.fecha),item:o}));
+  gastosR.forEach(g=>movs.push({tipo:'gasto',fecha:new Date(g.fecha),item:g}));
+  movs.sort((a,b)=>b.fecha-a.fecha);
+
   let html=`<div class="st">Acciones rápidas</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
       <button class="quick-btn" onclick="openAddGasto()" style="padding:16px 10px;text-align:center">
         <div style="font-size:26px">💸</div><div style="font-weight:700;margin-top:4px;font-size:12px">+ Gasto</div>
       </button>
@@ -1222,7 +1220,7 @@ function renderCon(){
         <div style="font-size:26px">💰</div><div style="font-weight:700;margin-top:4px;font-size:12px">+ Ingreso</div>
       </button>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
       <button class="btn bo" onclick="openObraForm()" style="padding:10px 4px;font-size:11px">🔨 Obra</button>
       <button class="btn bo" onclick="openIncidenteForm()" style="padding:10px 4px;font-size:11px">🚨 Incidente</button>
       <button class="btn bo" onclick="openInspeccionForm()" style="padding:10px 4px;font-size:11px">🏠 Inspección</button>
@@ -1232,62 +1230,65 @@ function renderCon(){
         <div style="font-size:22px">📅</div>
         <div style="flex:1">
           <div style="font-weight:700;font-size:13px">Bitácora de hoy</div>
-          <div style="font-size:10px;color:var(--dim);margin-top:2px">${totalPendBit===0&&b.hechos===0?'Sin items':(b.hechos>0?b.hechos+' ✓ · ':'')+totalPendBit+' pendiente'+(totalPendBit===1?'':'s')+(proxProg?' · próximo '+proxProg.hora+' '+proxProg.titulo.slice(0,30):'')}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${totalPendBit===0&&b.hechos===0?'Sin items':(b.hechos>0?b.hechos+' ✓ · ':'')+totalPendBit+' pendiente'+(totalPendBit===1?'':'s')+(proxProg?' · próximo '+proxProg.hora+' '+proxProg.titulo.slice(0,25):'')}</div>
         </div>
       </div>
     </button>
+
+    <div class="st">⚖️ Conciliación</div>
     <div class="cr" style="margin-bottom:8px">
+      <span class="chip${rangeMode==='hoy'?' on':''}" onclick="rangeMode='hoy';renderCon()">Hoy</span>
+      <span class="chip${rangeMode==='3dias'?' on':''}" onclick="rangeMode='3dias';renderCon()">3 días</span>
+      <span class="chip${rangeMode==='semana'?' on':''}" onclick="rangeMode='semana';renderCon()">Semana</span>
+      <span class="chip${rangeMode==='mes'?' on':''}" onclick="rangeMode='mes';renderCon()">Mes</span>
+    </div>
+    <div class="cr" style="margin-bottom:10px">
       <span class="chip${propFilter==='todos'?' on':''}" onclick="propFilter='todos';renderCon()">👥 Todos</span>
       ${DB.propietarios.map(p=>`<span class="chip${propFilter===p.nombre?' on':''}" onclick="propFilter='${p.nombre.replace(/'/g,"\\'")}';renderCon()">👤 ${p.nombre}</span>`).join('')}
     </div>
-    <div class="st-sm">Actividad reciente (últimos 30 días · ${feedFiltered.length})</div>`;
-  if(feedFiltered.length===0){
-    html+=`<div class="es"><div class="ei">📭</div><div class="et">Sin actividad reciente</div></div>`;
+    <div class="summary-card" style="margin-bottom:10px">
+      <div style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;text-align:center">${r.label}${propSel?' · '+propSel.nombre:''}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;text-align:center">
+        <div><div style="font-size:9px;color:var(--dim)">INGRESOS</div><div style="color:var(--g);font-weight:700;font-size:15px">${fmt(totalIng)}</div><div style="font-size:9px;color:var(--dim)">${pagosR.length+otrosR.length} movs</div></div>
+        <div><div style="font-size:9px;color:var(--dim)">GASTOS</div><div style="color:var(--r);font-weight:700;font-size:15px">${fmt(totalGas)}</div><div style="font-size:9px;color:var(--dim)">${gastosR.length} movs</div></div>
+        <div><div style="font-size:9px;color:var(--dim)">NETO</div><div style="color:${neto>=0?'var(--g)':'var(--r)'};font-weight:700;font-size:15px">${fmt(neto)}</div></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      <button class="btn bg" onclick="openPDFConfig()">📄 PDF conciliación</button>
+      <button class="btn bo" onclick="exportExcelMovs()">📊 Excel</button>
+    </div>
+    <div class="st-sm">Movimientos (${movs.length})</div>`;
+
+  if(movs.length===0){
+    html+=`<div class="es"><div class="ei">📭</div><div class="et">Sin movimientos en ${r.label.toLowerCase()}</div></div>`;
   }else{
-    html+='<div style="max-height:60vh;overflow-y:auto">';
-    feedFiltered.slice(0,50).forEach(f=>{
-      const propObj=getPropietario(f.item.propietarioId);
-      const propName=propObj?.nombre||'—';
+    movs.slice(0,80).forEach(f=>{
       const dateStr=f.fecha.toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
-      if(f.tipo==='gasto'){
-        const cat=CATS_GASTO[f.item.categoria]||CATS_GASTO.otros;
-        html+=`<div onclick="openAddGasto('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${cat.i} ${f.item.descripcion}</div>
-          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName} · ${f.item.inmueble||'—'} · ${cat.n}</div></div>
-          <div style="color:var(--r);font-weight:700">−${fmt(f.item.monto)}</div></div>`;
-      }else if(f.tipo==='otro_ing'){
+      const horaStr=f.fecha.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+      if(f.tipo==='pago'){
+        const t=DB.inquilinos.find(i=>i.id===f.item.iid);
+        html+=`<div onclick="openDet('${f.item.iid}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">🏠 ${t?.nombre||'?'}${f.item.adelantado?' ✨':''}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} ${horaStr} · ${t?.inmueble||''} · renta ${MF[f.item.mes-1]} · ${f.item.destino||'—'}</div></div>
+          <div style="color:var(--g);font-weight:700">+${fmt(f.item.monto)}</div></div>`;
+      }else if(f.tipo==='otro'){
         const cat=CATS_OTROS_ING[f.item.categoria]||CATS_OTROS_ING.otro;
         html+=`<div onclick="openAddOtroIngreso('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
           <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${cat.i} ${f.item.concepto}</div>
-          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName} · ${f.item.inmueble||'—'}</div></div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${f.item.inmueble||'—'}</div></div>
           <div style="color:var(--g);font-weight:700">+${fmt(f.item.monto)}</div></div>`;
-      }else if(f.tipo==='obra'){
-        const tipo=TIPOS_OBRA[f.item.tipo]||TIPOS_OBRA.otros;
-        html+=`<div onclick="openObraDetail('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${tipo.i} ${tipo.n}</div>
-          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName} · ${f.item.inmueble||'—'}</div></div>
-          <div style="color:var(--r);font-weight:700">${fmt(f.item.costo)}</div></div>`;
-      }else if(f.tipo==='incidente'){
-        const n=NIVELES_INC.find(x=>x.k===f.item.nivel)||NIVELES_INC[0];
-        html+=`<div onclick="openIncidenteDetail('${f.item.id}')" style="background:var(--s1);border:1px solid ${n.c}44;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;${f.item.resuelto?'opacity:.7':''}">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-            <div style="flex:1;min-width:0">
-              <div style="font-size:13px;font-weight:600">🚨 ${f.item.numero||'?'}${f.item.resuelto?' <span style="font-size:9px;color:var(--g)">✓ resuelto</span>':''}</div>
-              <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName} · ${f.item.lugar}</div>
-            </div>
-            <span class="bge" style="background:${n.c}33;color:${n.c};border-color:${n.c}66;font-size:9px">${n.n}</span>
-          </div></div>`;
-      }else if(f.tipo==='inspeccion'){
-        const cc=f.item.porcentaje>=80?'#5CB87A':f.item.porcentaje>=60?'#E0B840':'#E05C5C';
-        html+=`<div onclick="viewInspeccion('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">🏠 Inspección ${f.item.inmueble||''}</div>
-          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${propName}${f.item.inspector?' · '+f.item.inspector:''}</div></div>
-          <div style="color:${cc};font-weight:700">${(f.item.porcentaje||0).toFixed(0)}%</div></div>`;
+      }else{
+        const cat=CATS_GASTO[f.item.categoria]||CATS_GASTO.otros;
+        html+=`<div onclick="openAddGasto('${f.item.id}')" style="background:var(--s1);border:1px solid #222;border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${cat.i} ${f.item.descripcion}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${dateStr} · ${f.item.inmueble||'—'} · ${cat.n}</div></div>
+          <div style="color:var(--r);font-weight:700">−${fmt(f.item.monto)}</div></div>`;
       }
     });
-    if(feedFiltered.length>50)html+=`<div style="text-align:center;padding:10px;color:var(--dim);font-size:11px">+ ${feedFiltered.length-50} más...</div>`;
-    html+=`</div>`;
+    if(movs.length>80)html+=`<div style="text-align:center;padding:10px;color:var(--dim);font-size:11px">+ ${movs.length-80} más (usa Excel para ver todo)</div>`;
   }
+
   document.getElementById("v-con").innerHTML=html;
 }
 
@@ -2353,6 +2354,19 @@ function renderPropList(){
           html+=`</div>`;
         });
       }
+      // Inquilinos cuyo inmueble pertenece a otro propietario (mismatch de datos) — mostrarlos para que sean corregibles
+      const inmIdsProp=new Set(inms.map(x=>x.id));
+      const inmNamesProp=new Set(inms.map(x=>x.nombre));
+      const huerfanos=allTenants.filter(t=>!(inmIdsProp.has(t.inmuebleId)||inmNamesProp.has(t.inmueble)));
+      if(huerfanos.length>0){
+        html+=`<div style="background:#E05C5C11;border:1px solid #E05C5C44;border-radius:9px;padding:10px 12px;margin-top:8px">
+          <div style="font-size:11px;color:var(--r);font-weight:700;margin-bottom:6px">⚠️ ${huerfanos.length} inquilino${huerfanos.length===1?'':'s'} con inmueble de otro propietario</div>
+          ${huerfanos.map(t=>`<div onclick="openDet('${t.id}')" style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #E05C5C22;cursor:pointer;font-size:12px">
+            <span>${t.nombre}</span><span style="color:var(--dim)">${t.inmueble||'sin inmueble'} →</span>
+          </div>`).join('')}
+          <div style="font-size:9px;color:var(--dim);margin-top:6px">Toca para abrir y corregir el propietario o el inmueble</div>
+        </div>`;
+      }
       html+=`<div style="text-align:center;margin-top:6px"><button class="btn bs bsm" onclick="openInmuebleEditForm(null,'${p.id}')" style="font-size:10px">+ Agregar propiedad a ${p.nombre}</button></div>`;
       html+=`</div>`;
     }
@@ -2389,16 +2403,12 @@ function quickTogglePagoInq(iid,m,a){
 }
 
 function openEditTenantWithDefaults(propId,inmId){
-  const inm=DB.inmuebles.find(x=>x.id===inmId);
-  // Open edit tenant form with propietario+inmueble pre-filled
   openEditTenant();
   setTimeout(()=>{
-    const inmField=document.getElementById('m-inm');if(inmField&&inm)inmField.value=inm.nombre;
-    const propField=document.getElementById('m-prop');
-    if(propField){
-      const propObj=getPropietario(propId);
-      if(propObj)propField.value=propObj.nombre;
-    }
+    const propField=document.getElementById('m-propId');
+    if(propField&&propId){propField.value=propId;updateTenantInmuebles();}
+    const inmField=document.getElementById('m-inmId');
+    if(inmField&&inmId)inmField.value=inmId;
   },100);
 }
 
@@ -2484,40 +2494,48 @@ function openEditTenant(id){
   const t=id?DB.inquilinos.find(x=>x.id===id):{};
   const currentPropId=t.propietarioId||(t.propietario?getPropietarioByName(t.propietario)?.id:'');
   const currentInmId=t.inmuebleId||(t.inmueble?DB.inmuebles.find(x=>x.nombre===t.inmueble)?.id:'');
-  const inmuebles=currentPropId?DB.inmuebles.filter(x=>x.propietarioId===currentPropId):DB.inmuebles;
+  let inmuebles=currentPropId?DB.inmuebles.filter(x=>x.propietarioId===currentPropId):DB.inmuebles.slice();
+  // FIX: si el inmueble actual del inquilino pertenece a otro propietario, inclúyelo igual para no bloquear el guardado
+  if(currentInmId&&!inmuebles.find(x=>x.id===currentInmId)){
+    const inmActual=DB.inmuebles.find(x=>x.id===currentInmId);
+    if(inmActual){
+      const owner=getPropietario(inmActual.propietarioId);
+      inmuebles=[{...inmActual,_mismatchOwner:owner?.nombre||'?'},...inmuebles];
+    }
+  }
   modal(`<div class="ms"><div class="mh"></div>
     <div class="mt2">${id?'Editar Inquilino':'Nuevo Inquilino'}</div>
-    <div class="fg"><label class="fl">Nombre *</label><input class="fi" id="m-nom" value="${t?.nombre||''}"></div>
+    <div class="fg"><label class="fl">Nombre *</label><input class="fi" id="m-nom" value="${(t?.nombre||'').replace(/"/g,'&quot;')}"></div>
     <div class="grid2">
       <div class="fg"><label class="fl">Propietario *</label>
-        <select class="fi" id="m-propId" onchange="updateTenantInmuebles()">
+        <select class="fi" id="m-propId" onchange="updateTenantInmuebles('${currentInmId||''}')">
           <option value="">— Seleccionar —</option>
           ${DB.propietarios.map(p=>`<option value="${p.id}"${currentPropId===p.id?' selected':''}>${p.nombre}</option>`).join('')}
         </select></div>
       <div class="fg"><label class="fl">Inmueble *</label>
         <select class="fi" id="m-inmId">
           <option value="">— Seleccionar —</option>
-          ${inmuebles.map(im=>`<option value="${im.id}"${currentInmId===im.id?' selected':''}>${im.nombre}</option>`).join('')}
+          ${inmuebles.map(im=>`<option value="${im.id}"${currentInmId===im.id?' selected':''}>${im.nombre}${im._mismatchOwner?' (de '+im._mismatchOwner+')':''}</option>`).join('')}
         </select></div>
     </div>
     <div class="grid2">
-      <div class="fg"><label class="fl">Interior / Depto</label><input class="fi" id="m-int" value="${t?.interior||''}" placeholder="Ej: 3, A, PB"></div>
+      <div class="fg"><label class="fl">Interior / Depto</label><input class="fi" id="m-int" value="${(t?.interior||'').toString().replace(/"/g,'&quot;')}" placeholder="Ej: 3, A, PB"></div>
       <div class="fg"><label class="fl">Renta $ *</label><input class="fi" type="number" id="m-rent" value="${t?.renta||''}"></div>
     </div>
     <div class="grid2">
       <div class="fg"><label class="fl">Día pago *</label><input class="fi" type="number" min="1" max="31" id="m-dia" value="${t?.dia||5}"></div>
-      <div class="fg"><label class="fl">Destino cobro</label><input class="fi" id="m-dest" value="${t?.destino||''}" placeholder="EFE / banco"></div>
+      <div class="fg"><label class="fl">Destino cobro</label><input class="fi" id="m-dest" value="${(t?.destino||'').replace(/"/g,'&quot;')}" placeholder="EFE / banco"></div>
     </div>
-    <div class="fg"><label class="fl">Cuenta CFE / Luz (de este depto)</label><input class="fi" id="m-luz" value="${t?.cuenta_luz||''}" placeholder="Número de servicio"></div>
-    <div class="fg"><label class="fl">Servicios incluidos</label><input class="fi" id="m-srv" value="${t?.servicios||''}"></div>
-    <div class="fg"><label class="fl">Estatus</label><input class="fi" id="m-est" value="${t?.estatus||'Al corriente'}"></div>
+    <div class="fg"><label class="fl">Cuenta CFE / Luz (de este depto)</label><input class="fi" id="m-luz" value="${(t?.cuenta_luz||'').replace(/"/g,'&quot;')}" placeholder="Número de servicio"></div>
+    <div class="fg"><label class="fl">Servicios incluidos</label><input class="fi" id="m-srv" value="${(t?.servicios||'').replace(/"/g,'&quot;')}"></div>
+    <div class="fg"><label class="fl">Estatus</label><input class="fi" id="m-est" value="${(t?.estatus||'Al corriente').replace(/"/g,'&quot;')}"></div>
     <div class="grid2">
       <div class="fg"><label class="fl">Renovación</label><input class="fi" type="date" id="m-ren" value="${t?.renovacion||''}"></div>
       <div class="fg"><label class="fl">Contrato vigente</label><select class="fi" id="m-cv">
         <option value="Si"${t?.contrato_vigente==='Si'||t?.contrato_vigente==='SI'||t?.contrato_vigente==='Si '?' selected':''}>Sí</option>
         <option value="No"${t?.contrato_vigente==='No'||!t?.contrato_vigente?' selected':''}>No</option></select></div>
     </div>
-    <div class="fg"><label class="fl">Comentarios</label><input class="fi" id="m-com" value="${t?.comentarios||''}"></div>
+    <div class="fg"><label class="fl">Comentarios</label><input class="fi" id="m-com" value="${(t?.comentarios||'').replace(/"/g,'&quot;')}"></div>
     <div class="fg"><label class="fl">Estado</label><select class="fi" id="m-estado">
       <option value="activo"${(!t?.estado||t?.estado==='activo')?' selected':''}>Activo (cobrando)</option>
       <option value="inactivo"${t?.estado==='inactivo'?' selected':''}>Inactivo (ya no renta)</option></select></div>
@@ -2528,39 +2546,66 @@ function openEditTenant(id){
     </div></div>`);
 }
 
-function updateTenantInmuebles(){
+function updateTenantInmuebles(keepInmId){
   const propId=document.getElementById('m-propId').value;
   const sel=document.getElementById('m-inmId');
   if(!sel)return;
-  const currentVal=sel.value;
-  const inmuebles=propId?DB.inmuebles.filter(x=>x.propietarioId===propId):DB.inmuebles;
-  sel.innerHTML='<option value="">— Seleccionar —</option>'+inmuebles.map(im=>`<option value="${im.id}"${currentVal===im.id?' selected':''}>${im.nombre}</option>`).join('');
+  const currentVal=sel.value||keepInmId||'';
+  let inmuebles=propId?DB.inmuebles.filter(x=>x.propietarioId===propId):DB.inmuebles.slice();
+  // Mantener el inmueble seleccionado visible aunque sea de otro propietario
+  if(currentVal&&!inmuebles.find(x=>x.id===currentVal)){
+    const inmActual=DB.inmuebles.find(x=>x.id===currentVal);
+    if(inmActual){
+      const owner=getPropietario(inmActual.propietarioId);
+      inmuebles=[{...inmActual,_mismatchOwner:owner?.nombre||'?'},...inmuebles];
+    }
+  }
+  sel.innerHTML='<option value="">— Seleccionar —</option>'+inmuebles.map(im=>`<option value="${im.id}"${currentVal===im.id?' selected':''}>${im.nombre}${im._mismatchOwner?' (de '+im._mismatchOwner+')':''}</option>`).join('');
 }
 
 function saveTenant(id){
-  const nom=document.getElementById('m-nom').value.trim();
-  const propId=document.getElementById('m-propId').value;
-  const inmId=document.getElementById('m-inmId').value;
-  const rent=document.getElementById('m-rent').value;
-  if(!nom||!propId||!inmId||!rent){snack('Completa: nombre, propietario, inmueble y renta');return;}
-  const propObj=getPropietario(propId);
-  const inmObj=DB.inmuebles.find(x=>x.id===inmId);
-  const obj={nombre:nom,
-    propietarioId:propId,propietario:propObj?.nombre||'',
-    inmuebleId:inmId,inmueble:inmObj?.nombre||'',
-    interior:document.getElementById('m-int').value.trim(),renta:Number(rent),
-    dia:Number(document.getElementById('m-dia').value)||5,destino:document.getElementById('m-dest').value.trim(),
-    cuenta_luz:document.getElementById('m-luz').value.trim(),
-    servicios:document.getElementById('m-srv').value.trim(),estatus:document.getElementById('m-est').value.trim(),
-    renovacion:document.getElementById('m-ren').value,contrato_vigente:document.getElementById('m-cv').value,
-    comentarios:document.getElementById('m-com').value.trim(),estado:document.getElementById('m-estado').value};
-  if(id){Object.assign(DB.inquilinos.find(x=>x.id===id),obj);}else{DB.inquilinos.push({id:uid(),...obj});}
-  saveDB('inquilinos');closeM();snack(id?'Actualizado ✓':'Agregado ✓');
-  if(curView==='inq')renderPropList();
-  else if(curView==='det'&&detTenant?.id===id){detTenant=DB.inquilinos.find(x=>x.id===id);renderDet();}
-  else if(curView==='con')renderCon();
-  else if(curView==='dash')renderDash();
-  updNotif();
+  try{
+    const nom=document.getElementById('m-nom').value.trim();
+    const propId=document.getElementById('m-propId').value;
+    const inmId=document.getElementById('m-inmId').value;
+    const rent=document.getElementById('m-rent').value;
+    const faltan=[];
+    if(!nom)faltan.push('nombre');
+    if(!propId)faltan.push('propietario');
+    if(!inmId)faltan.push('inmueble');
+    if(!rent)faltan.push('renta');
+    if(faltan.length){snack('⚠️ Falta: '+faltan.join(', '));return;}
+    const propObj=getPropietario(propId);
+    const inmObj=DB.inmuebles.find(x=>x.id===inmId);
+    const obj={nombre:nom,
+      propietarioId:propId,propietario:propObj?.nombre||'',
+      inmuebleId:inmId,inmueble:inmObj?.nombre||'',
+      interior:document.getElementById('m-int').value.trim(),renta:Number(rent),
+      dia:Number(document.getElementById('m-dia').value)||5,destino:document.getElementById('m-dest').value.trim(),
+      cuenta_luz:document.getElementById('m-luz').value.trim(),
+      servicios:document.getElementById('m-srv').value.trim(),estatus:document.getElementById('m-est').value.trim(),
+      renovacion:document.getElementById('m-ren').value,contrato_vigente:document.getElementById('m-cv').value,
+      comentarios:document.getElementById('m-com').value.trim(),estado:document.getElementById('m-estado').value};
+    if(id){
+      const ten=DB.inquilinos.find(x=>x.id===id);
+      if(!ten){snack('⚠️ No encontré al inquilino');return;}
+      Object.assign(ten,obj);
+    }else{DB.inquilinos.push({id:uid(),...obj});}
+    saveDB('inquilinos');closeM();snack(id?'Actualizado ✓':'Agregado ✓');
+    if(curView==='inq')renderPropList();
+    else if(curView==='det'&&detTenant?.id===id){
+      detTenant=DB.inquilinos.find(x=>x.id===id);
+      document.getElementById("hdr-t").textContent=detTenant?.nombre||"Inquilino";
+      document.getElementById("hdr-s").textContent=detTenant?.inmueble||"";
+      renderDet();
+    }
+    else if(curView==='con')renderCon();
+    else if(curView==='dash')renderDash();
+    updNotif();
+  }catch(e){
+    console.error('[saveTenant]',e);
+    snack('❌ Error al guardar: '+e.message);
+  }
 }
 
 function delTenant(id){
@@ -4469,6 +4514,7 @@ function openPDFConfig(){
       <select class="fi" id="pdf-rango">
         <option value="hoy">Hoy</option>
         <option value="ayer">Ayer</option>
+        <option value="3dias">Últimos 3 días</option>
         <option value="semana" selected>Esta semana</option>
         <option value="sem_pas">Semana pasada</option>
         <option value="mes">Este mes</option>
@@ -4488,6 +4534,7 @@ function openPDFConfig(){
   document.getElementById('pdf-rango').addEventListener('change',function(){
     document.getElementById('pdf-custom').style.display=this.value==='custom'?'block':'none';
   });
+  if(['hoy','ayer','3dias','semana','sem_pas','mes'].includes(rangeMode))document.getElementById('pdf-rango').value=rangeMode;
 }
 
 function genPDFConciliacionConfig(){
