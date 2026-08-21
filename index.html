@@ -10,7 +10,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
@@ -3259,8 +3258,45 @@ function buildPropietarioReporte(propId,rango){
   return{prop,rango:r,porInmueble,opex,gastosPeriodo};
 }
 
+// Carga PptxGenJS bajo demanda con varios CDN de respaldo
+let _pptxLoading=null;
+function ensurePptxGenJS(){
+  if(typeof PptxGenJS!=='undefined')return Promise.resolve(true);
+  if(_pptxLoading)return _pptxLoading;
+  const urls=[
+    'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js',
+    'https://unpkg.com/pptxgenjs@3.12.0/dist/pptxgen.bundle.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.min.js'
+  ];
+  _pptxLoading=new Promise((resolve)=>{
+    let idx=0;
+    const tryNext=()=>{
+      if(typeof PptxGenJS!=='undefined'){resolve(true);return;}
+      if(idx>=urls.length){resolve(false);return;}
+      const url=urls[idx++];
+      const sc=document.createElement('script');
+      sc.src=url;
+      sc.onload=()=>{
+        setTimeout(()=>{
+          if(typeof PptxGenJS!=='undefined')resolve(true);
+          else tryNext();
+        },100);
+      };
+      sc.onerror=()=>{tryNext();};
+      document.head.appendChild(sc);
+    };
+    tryNext();
+  });
+  return _pptxLoading;
+}
+
 async function generarPPTPropietario(propId,rangoMode){
-  if(typeof PptxGenJS==='undefined'){snack('⚠️ Librería de presentaciones no cargó. Revisa tu conexión.');return;}
+  snack('⏳ Cargando generador de presentaciones...');
+  const ok=await ensurePptxGenJS();
+  if(!ok||typeof PptxGenJS==='undefined'){
+    snack('⚠️ No se pudo cargar la librería. Revisa tu conexión a internet e inténtalo de nuevo.');
+    return;
+  }
   const rango=getRange(rangoMode||'semana');
   const data=buildPropietarioReporte(propId,rango);
   if(!data){snack('No encontré al propietario');return;}
@@ -3431,9 +3467,26 @@ async function generarPPTPropietario(propId,rangoMode){
   // Guardar
   const fname='Reporte_'+data.prop.nombre.replace(/\s+/g,'_')+'_'+todayISO()+'.pptx';
   try{
-    await pptx.writeFile({fileName:fname});
+    // Método robusto: generar blob y forzar descarga (funciona mejor en móvil)
+    const blob=await pptx.write({outputType:'blob'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=fname;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
     snack('✅ Presentación descargada');
-  }catch(e){console.error(e);snack('Error al generar: '+e.message);}
+  }catch(e){
+    console.error('[PPTX write blob]',e);
+    // Fallback al método directo de la librería
+    try{
+      await pptx.writeFile({fileName:fname});
+      snack('✅ Presentación descargada');
+    }catch(e2){
+      console.error('[PPTX writeFile]',e2);
+      snack('❌ Error al generar: '+e2.message);
+    }
+  }
 }
 
 // Modal para elegir propietario + período
