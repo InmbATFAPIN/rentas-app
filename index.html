@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
@@ -801,7 +802,14 @@ function isLate(iid,m,a){
   if(a<HA||(a===HA&&m<HM))return true;
   const t=DB.inquilinos.find(x=>x.id===iid);return HD>=Number(t?.dia||1);
 }
-function todayISO(){return new Date().toISOString().slice(0,10)}
+function todayISO(){
+  const d=new Date();
+  // Fecha local (no UTC) — evita que después de las 6pm en México se adelante un día
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
 function nowISO(){return new Date().toISOString()}
 
 // ── Servicios balance & rendimiento por inmueble ──
@@ -3199,6 +3207,258 @@ function openCuentaDetail(svcId){
 }
 
 // Export de todas las cuentas con todas las columnas + balance
+// ═══ GENERADOR DE PRESENTACIÓN (PPTX) POR PROPIETARIO ═══
+// Recolecta todos los datos de un propietario para el período dado
+function buildPropietarioReporte(propId,rango){
+  const prop=getPropietario(propId);
+  if(!prop)return null;
+  const r=rango||getRange('semana');
+  const inRango=(f)=>{if(!f)return false;const d=new Date(f);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;};
+  const inmuebles=DB.inmuebles.filter(i=>i.propietarioId===propId).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  const norm=t=>t==='cfe'?'luz':t;
+
+  // Datos por inmueble
+  const porInmueble=inmuebles.map(inm=>{
+    const tenants=DB.inquilinos.filter(t=>(t.inmuebleId===inm.id||t.inmueble===inm.nombre)&&t.estado==='activo');
+    const totalRenta=tenants.reduce((s,t)=>s+Number(t.renta||0),0);
+    // Cobrado en el período (pagos con fecha_pago en rango)
+    const inqIds=tenants.map(t=>t.id);
+    const pagosPeriodo=DB.pagos.filter(p=>p.pagado&&inqIds.includes(p.iid)&&inRango(p.fecha_pago));
+    const cobradoPeriodo=pagosPeriodo.reduce((s,p)=>s+Number(p.monto||0),0);
+    // Cobrado del mes actual (para % esperado mensual)
+    const pagosMes=DB.pagos.filter(p=>p.pagado&&inqIds.includes(p.iid)&&p.mes===HM&&p.anio===HA);
+    const cobradoMes=pagosMes.reduce((s,p)=>s+Number(p.monto||0),0);
+    const pendienteMes=Math.max(0,totalRenta-cobradoMes);
+    // Vacancia
+    const totalDepas=inm.total_depas||tenants.length;
+    const ocupados=tenants.length;
+    const pctOcup=totalDepas>0?Math.round(ocupados/totalDepas*100):0;
+    // Atrasados (vencidos este mes)
+    const atrasados=tenants.filter(t=>isLate(t.id,HM,HA)).map(t=>({nombre:t.nombre,interior:t.interior,renta:Number(t.renta||0)}));
+    // Trabajos (obras del período)
+    const obras=DB.obras.filter(o=>(o.inmueble===inm.nombre)&&inRango(o.fecha)).map(o=>({tipo:(TIPOS_OBRA[o.tipo]||TIPOS_OBRA.otros).n,costo:Number(o.costo||0),desc:o.descripcion||''}));
+    // Incidentes del período
+    const incidentes=DB.incidentes.filter(i=>{
+      const lugarLow=(i.lugar||'').toLowerCase();const inmLow=inm.nombre.toLowerCase();
+      return (lugarLow.includes(inmLow)||inmLow.includes(lugarLow))&&inRango(i.fecha);
+    }).map(i=>({numero:i.numero,desc:i.descripcion||'',resuelto:i.resuelto,nivel:i.nivel}));
+    // Deudas de servicios
+    const svcs=DB.servicios.filter(s=>s.inmueble===inm.nombre);
+    const deudaLuzArr=svcs.filter(s=>norm(s.tipo)==='luz').map(s=>({alias:s.alias||'',monto:Math.max(0,getServicioBalance(s.id))})).filter(x=>x.monto>0);
+    const deudaLuz=deudaLuzArr.reduce((s,x)=>s+x.monto,0);
+    const deudaAgua=svcs.filter(s=>norm(s.tipo)==='agua').reduce((s,sv)=>s+Math.max(0,getServicioBalance(sv.id)),0);
+    const deudaPredial=svcs.filter(s=>norm(s.tipo)==='predial').reduce((s,sv)=>s+Math.max(0,getServicioBalance(sv.id)),0);
+    return{inm,tenants,totalRenta,cobradoPeriodo,cobradoMes,pendienteMes,totalDepas,ocupados,pctOcup,atrasados,obras,incidentes,deudaLuz,deudaLuzArr,deudaAgua,deudaPredial};
+  });
+
+  // OPEX (gastos del período por categoría)
+  const gastosPeriodo=DB.gastos.filter(g=>g.propietarioId===propId&&inRango(g.fecha));
+  const opex={mano_obra:0,carros:0,mantenimiento:0,servicios:0,otros:0};
+  gastosPeriodo.forEach(g=>{const c=g.categoria||'otros';opex[c]=(opex[c]||0)+Number(g.monto||0);});
+
+  return{prop,rango:r,porInmueble,opex,gastosPeriodo};
+}
+
+async function generarPPTPropietario(propId,rangoMode){
+  if(typeof PptxGenJS==='undefined'){snack('⚠️ Librería de presentaciones no cargó. Revisa tu conexión.');return;}
+  const rango=getRange(rangoMode||'semana');
+  const data=buildPropietarioReporte(propId,rango);
+  if(!data){snack('No encontré al propietario');return;}
+  snack('⏳ Generando presentación...');
+
+  const P={navy:'1F3A5F',blue:'4472C4',blueLt:'8FAADC',blueBg:'D9E2F3',gold:'C9A227',red:'C0392B',green:'27AE60',gray:'6B7280',dark:'2C3E50',white:'FFFFFF',light:'F4F6FA'};
+  const pptx=new PptxGenJS();
+  pptx.layout='LAYOUT_WIDE'; // 13.3 x 7.5
+  pptx.author='Gestión de Rentas';
+  pptx.company=data.prop.nombre;
+
+  const money=(n)=>'$'+Number(n||0).toLocaleString('es-MX',{maximumFractionDigits:0});
+  const pct=(a,b)=>b>0?Math.round(a/b*100)+'%':'0%';
+
+  // ── SLIDE 1: PORTADA ──
+  let s=pptx.addSlide();
+  s.background={color:P.navy};
+  s.addText('Situación Financiera de Inmuebles',{x:0.8,y:2.3,w:11.7,h:1.2,fontSize:40,bold:true,color:P.white,fontFace:'Georgia',align:'center'});
+  s.addShape(pptx.ShapeType.rect,{x:5.15,y:3.7,w:3.0,h:0.05,fill:{color:P.gold}});
+  s.addText(data.prop.nombre,{x:0.8,y:3.9,w:11.7,h:0.7,fontSize:28,bold:true,color:P.gold,align:'center',fontFace:'Georgia'});
+  s.addText(data.rango.label,{x:0.8,y:4.7,w:11.7,h:0.5,fontSize:16,color:P.blueLt,align:'center'});
+  s.addText('Generado el '+new Date().toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}),{x:0.8,y:6.6,w:11.7,h:0.4,fontSize:11,color:P.blueLt,align:'center',italic:true});
+
+  // ── SLIDE 2: SITUACIÓN DE LOS INMUEBLES (tabla) ──
+  s=pptx.addSlide();
+  s.background={color:P.white};
+  s.addText('SITUACIÓN DE LOS INMUEBLES',{x:0.5,y:0.35,w:12.3,h:0.6,fontSize:26,bold:true,color:P.navy,fontFace:'Georgia'});
+  const head2=['INMUEBLE','TOTAL RENTAS\n(MENSUAL)','COBRADO\n('+data.rango.label+')','PENDIENTE\n(MES)','OCUPACIÓN'];
+  const rows2=[head2.map(t=>({text:t,options:{bold:true,color:P.white,fill:{color:P.blue},align:'center',valign:'middle',fontSize:11}}))];
+  let tot={renta:0,cobP:0,pend:0};
+  data.porInmueble.forEach((d,i)=>{
+    tot.renta+=d.totalRenta;tot.cobP+=d.cobradoPeriodo;tot.pend+=d.pendienteMes;
+    const bg=i%2===0?P.light:P.white;
+    rows2.push([
+      {text:d.inm.nombre,options:{bold:true,color:P.dark,fill:{color:bg},valign:'middle',fontSize:11}},
+      {text:money(d.totalRenta),options:{color:P.dark,fill:{color:bg},align:'center',valign:'middle',fontSize:11}},
+      {text:money(d.cobradoPeriodo),options:{color:P.green,bold:true,fill:{color:bg},align:'center',valign:'middle',fontSize:11}},
+      {text:money(d.pendienteMes)+(d.totalRenta>0?'\n('+pct(d.pendienteMes,d.totalRenta)+')':''),options:{color:d.pendienteMes>0?P.red:P.gray,fill:{color:bg},align:'center',valign:'middle',fontSize:10}},
+      {text:d.ocupados+'/'+d.totalDepas+'\n('+d.pctOcup+'%)',options:{color:P.dark,fill:{color:bg},align:'center',valign:'middle',fontSize:10}}
+    ]);
+  });
+  // Fila total
+  rows2.push([
+    {text:'TOTAL',options:{bold:true,color:P.white,fill:{color:P.navy},valign:'middle',fontSize:11}},
+    {text:money(tot.renta),options:{bold:true,color:P.white,fill:{color:P.navy},align:'center',valign:'middle',fontSize:11}},
+    {text:money(tot.cobP),options:{bold:true,color:P.white,fill:{color:P.navy},align:'center',valign:'middle',fontSize:11}},
+    {text:money(tot.pend),options:{bold:true,color:P.white,fill:{color:P.navy},align:'center',valign:'middle',fontSize:11}},
+    {text:'',options:{fill:{color:P.navy}}}
+  ]);
+  s.addTable(rows2,{x:0.5,y:1.2,w:12.3,colW:[3.0,2.3,2.6,2.4,2.0],border:{type:'solid',color:'D0D5DD',pt:0.5},autoPage:false});
+
+  // ── SLIDES 3+: UNA POR INMUEBLE (detalle) ──
+  data.porInmueble.forEach(d=>{
+    s=pptx.addSlide();
+    s.background={color:P.white};
+    s.addText('INMUEBLE: '+d.inm.nombre,{x:0.5,y:0.35,w:12.3,h:0.6,fontSize:26,bold:true,color:P.navy,fontFace:'Georgia'});
+    if(d.inm.direccion)s.addText(d.inm.direccion,{x:0.5,y:0.95,w:12.3,h:0.35,fontSize:12,color:P.gray,italic:true});
+    // Círculo con % ocupación (sustituye "logo de casa")
+    s.addShape(pptx.ShapeType.ellipse,{x:0.7,y:1.7,w:2.2,h:2.2,fill:{color:P.blueBg},line:{color:P.blue,width:2}});
+    s.addText([{text:d.pctOcup+'%\n',options:{fontSize:30,bold:true,color:P.navy}},{text:'ocupación\n',options:{fontSize:11,color:P.gray}},{text:d.ocupados+'/'+d.totalDepas+' deptos',options:{fontSize:10,color:P.gray}}],{x:0.7,y:1.7,w:2.2,h:2.2,align:'center',valign:'middle'});
+    // Cobrado del periodo
+    s.addText([{text:'Cobrado ('+data.rango.label+')\n',options:{fontSize:11,color:P.gray}},{text:money(d.cobradoPeriodo),options:{fontSize:20,bold:true,color:P.green}}],{x:0.7,y:4.1,w:2.2,h:1.0,align:'center'});
+
+    const colX=3.4,colW=9.4;
+    // Rentas atrasadas
+    s.addText('RENTAS ATRASADAS Y NO COBRADAS',{x:colX,y:1.6,w:colW,h:0.35,fontSize:14,bold:true,color:P.red});
+    if(d.atrasados.length===0){
+      s.addText('✓ Sin rentas atrasadas',{x:colX+0.2,y:1.95,w:colW,h:0.3,fontSize:12,color:P.green});
+    }else{
+      const at=d.atrasados.slice(0,5).map(a=>({text:a.nombre+(a.interior?' (Int '+a.interior+')':'')+' — '+money(a.renta),options:{fontSize:11,color:P.dark,bullet:{code:'2022'},breakLine:true,paraSpaceAfter:3}}));
+      s.addText(at,{x:colX+0.2,y:1.95,w:colW,h:1.3,valign:'top'});
+    }
+    // Trabajos realizados
+    s.addText('TRABAJOS REALIZADOS',{x:colX,y:3.35,w:colW,h:0.35,fontSize:14,bold:true,color:P.blue});
+    if(d.obras.length===0){
+      s.addText('Sin trabajos en el período',{x:colX+0.2,y:3.7,w:colW,h:0.3,fontSize:12,color:P.gray,italic:true});
+    }else{
+      const ob=d.obras.slice(0,5).map(o=>({text:o.tipo+(o.desc?' — '+o.desc.slice(0,50):'')+' ('+money(o.costo)+')',options:{fontSize:11,color:P.dark,bullet:{code:'2022'},breakLine:true,paraSpaceAfter:3}}));
+      s.addText(ob,{x:colX+0.2,y:3.7,w:colW,h:1.3,valign:'top'});
+    }
+    // Incidentes
+    s.addText('INCIDENTES REPORTADOS',{x:colX,y:5.1,w:colW,h:0.35,fontSize:14,bold:true,color:P.gold});
+    if(d.incidentes.length===0){
+      s.addText('Sin incidentes en el período',{x:colX+0.2,y:5.45,w:colW,h:0.3,fontSize:12,color:P.gray,italic:true});
+    }else{
+      const inc=d.incidentes.slice(0,5).map(i=>({text:(i.numero||'?')+' — '+i.desc.slice(0,60)+(i.resuelto?' ✓ resuelto':' (activo)'),options:{fontSize:11,color:i.resuelto?P.gray:P.dark,bullet:{code:'2022'},breakLine:true,paraSpaceAfter:3}}));
+      s.addText(inc,{x:colX+0.2,y:5.45,w:colW,h:1.5,valign:'top'});
+    }
+  });
+
+  // ── SLIDE: PASIVOS A LIQUIDAR ──
+  s=pptx.addSlide();
+  s.background={color:P.white};
+  s.addText('PASIVOS A LIQUIDAR',{x:0.5,y:0.35,w:12.3,h:0.6,fontSize:26,bold:true,color:P.navy,fontFace:'Georgia'});
+  const headP=['INMUEBLE','DEUDA LUZ','DEUDA AGUA','DEUDA PREDIAL','TOTAL'];
+  const rowsP=[headP.map(t=>({text:t,options:{bold:true,color:P.white,fill:{color:P.blue},align:'center',valign:'middle',fontSize:12}}))];
+  let totP={luz:0,agua:0,pred:0};
+  data.porInmueble.forEach((d,i)=>{
+    const totInm=d.deudaLuz+d.deudaAgua+d.deudaPredial;
+    if(totInm===0&&d.deudaLuzArr.length===0)return; // omitir inmuebles sin deuda
+    totP.luz+=d.deudaLuz;totP.agua+=d.deudaAgua;totP.pred+=d.deudaPredial;
+    const bg=i%2===0?P.light:P.white;
+    const luzDetalle=d.deudaLuzArr.length>0?money(d.deudaLuz):(d.deudaLuz>0?money(d.deudaLuz):'—');
+    rowsP.push([
+      {text:d.inm.nombre+'\n('+money(d.totalRenta)+' renta/mes)',options:{bold:true,color:P.dark,fill:{color:bg},valign:'middle',fontSize:10}},
+      {text:luzDetalle,options:{color:d.deudaLuz>0?P.red:P.gray,fill:{color:bg},align:'center',valign:'middle',fontSize:11}},
+      {text:d.deudaAgua>0?money(d.deudaAgua):'—',options:{color:d.deudaAgua>0?P.red:P.gray,fill:{color:bg},align:'center',valign:'middle',fontSize:11}},
+      {text:d.deudaPredial>0?money(d.deudaPredial):'—',options:{color:d.deudaPredial>0?P.red:P.gray,fill:{color:bg},align:'center',valign:'middle',fontSize:11}},
+      {text:money(totInm),options:{bold:true,color:P.red,fill:{color:bg},align:'center',valign:'middle',fontSize:11}}
+    ]);
+  });
+  const granTotal=totP.luz+totP.agua+totP.pred;
+  rowsP.push([
+    {text:'TOTAL',options:{bold:true,color:P.white,fill:{color:P.navy},valign:'middle',fontSize:12}},
+    {text:money(totP.luz),options:{bold:true,color:P.white,fill:{color:P.navy},align:'center',valign:'middle',fontSize:11}},
+    {text:money(totP.agua),options:{bold:true,color:P.white,fill:{color:P.navy},align:'center',valign:'middle',fontSize:11}},
+    {text:money(totP.pred),options:{bold:true,color:P.white,fill:{color:P.navy},align:'center',valign:'middle',fontSize:11}},
+    {text:money(granTotal),options:{bold:true,color:P.gold,fill:{color:P.navy},align:'center',valign:'middle',fontSize:12}}
+  ]);
+  if(rowsP.length===2){ // solo header + total = sin deudas
+    s.addText('✓ Sin pasivos pendientes en los inmuebles de '+data.prop.nombre,{x:0.5,y:3.3,w:12.3,h:0.6,fontSize:18,color:P.green,align:'center',bold:true});
+  }else{
+    s.addTable(rowsP,{x:0.5,y:1.3,w:12.3,colW:[3.4,2.5,2.3,2.5,1.6],border:{type:'solid',color:'D0D5DD',pt:0.5},autoPage:false});
+  }
+
+  // ── SLIDE: OPEX ──
+  s=pptx.addSlide();
+  s.background={color:P.white};
+  s.addText('OPEX: GASTOS OPERATIVOS',{x:0.5,y:0.35,w:12.3,h:0.6,fontSize:26,bold:true,color:P.navy,fontFace:'Georgia'});
+  s.addText('Período: '+data.rango.label,{x:0.5,y:0.95,w:12.3,h:0.35,fontSize:13,color:P.gray,italic:true});
+  const opexItems=[
+    {label:'MANO DE OBRA',val:data.opex.mano_obra||0,color:P.blue},
+    {label:'CARRO / TRANSPORTE',val:data.opex.carros||0,color:P.navy},
+    {label:'MANTENIMIENTO / REPARACIONES',val:data.opex.mantenimiento||0,color:P.gold},
+    {label:'SERVICIOS',val:data.opex.servicios||0,color:P.green},
+    {label:'OTROS',val:data.opex.otros||0,color:P.gray}
+  ];
+  const totalOpex=opexItems.reduce((s2,i)=>s2+i.val,0);
+  let cardY=1.6;
+  opexItems.forEach(it=>{
+    s.addShape(pptx.ShapeType.roundRect,{x:0.8,y:cardY,w:8.5,h:0.75,fill:{color:P.light},line:{color:'E0E4EA',width:1},rectRadius:0.05});
+    s.addShape(pptx.ShapeType.ellipse,{x:1.0,y:cardY+0.13,w:0.5,h:0.5,fill:{color:it.color}});
+    s.addText(it.label,{x:1.7,y:cardY,w:5.0,h:0.75,fontSize:14,bold:true,color:P.dark,valign:'middle'});
+    s.addText(money(it.val),{x:6.7,y:cardY,w:2.4,h:0.75,fontSize:18,bold:true,color:it.color,align:'right',valign:'middle'});
+    cardY+=0.92;
+  });
+  // Total OPEX card
+  s.addShape(pptx.ShapeType.roundRect,{x:9.6,y:1.6,w:3.2,h:2.5,fill:{color:P.navy},rectRadius:0.05});
+  s.addText([{text:'TOTAL OPEX\n',options:{fontSize:14,color:P.blueLt}},{text:money(totalOpex)+'\n',options:{fontSize:30,bold:true,color:P.white}},{text:data.rango.label,options:{fontSize:11,color:P.blueLt}}],{x:9.6,y:1.6,w:3.2,h:2.5,align:'center',valign:'middle'});
+
+  // ── SLIDE: REPARACIONES RECOMENDADAS ──
+  s=pptx.addSlide();
+  s.background={color:P.white};
+  s.addText('REPARACIONES RECOMENDADAS',{x:0.5,y:0.35,w:12.3,h:0.6,fontSize:26,bold:true,color:P.navy,fontFace:'Georgia'});
+  // Sugerir desde incidentes activos + inspecciones bajas
+  const recomend=[];
+  data.porInmueble.forEach(d=>{
+    d.incidentes.filter(i=>!i.resuelto).forEach(i=>recomend.push(d.inm.nombre+': '+i.desc.slice(0,70)));
+  });
+  if(recomend.length>0){
+    const rec=recomend.slice(0,10).map(t=>({text:t,options:{fontSize:13,color:P.dark,bullet:{code:'2022'},breakLine:true,paraSpaceAfter:6}}));
+    s.addText(rec,{x:0.8,y:1.5,w:11.7,h:5.2,valign:'top'});
+  }else{
+    s.addShape(pptx.ShapeType.roundRect,{x:1.5,y:2.5,w:10.3,h:2.2,fill:{color:P.light},line:{color:'E0E4EA',width:1},rectRadius:0.08});
+    s.addText('Espacio para notas y recomendaciones',{x:1.5,y:3.4,w:10.3,h:0.5,fontSize:16,color:P.gray,align:'center',italic:true});
+  }
+
+  // Guardar
+  const fname='Reporte_'+data.prop.nombre.replace(/\s+/g,'_')+'_'+todayISO()+'.pptx';
+  try{
+    await pptx.writeFile({fileName:fname});
+    snack('✅ Presentación descargada');
+  }catch(e){console.error(e);snack('Error al generar: '+e.message);}
+}
+
+// Modal para elegir propietario + período
+function openPPTGenerator(){
+  if(DB.propietarios.length===0){snack('No hay propietarios');return;}
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">📊 Generar presentación</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:14px">Reporte ejecutivo tipo PowerPoint con situación de inmuebles, deudas, OPEX y recomendaciones.</div>
+    <div class="fg"><label class="fl">Propietario *</label>
+      <select class="fi" id="ppt-prop">
+        ${DB.propietarios.map(p=>`<option value="${p.id}">${p.nombre}</option>`).join('')}
+      </select></div>
+    <div class="fg"><label class="fl">Período del reporte</label>
+      <select class="fi" id="ppt-rango">
+        <option value="semana" selected>Esta semana</option>
+        <option value="sem_pas">Semana pasada</option>
+        <option value="mes">Este mes</option>
+        <option value="3dias">Últimos 3 días</option>
+        <option value="hoy">Hoy</option>
+      </select></div>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:14px;line-height:1.5">La presentación incluye una diapositiva por cada inmueble del propietario. Las rentas atrasadas, deudas y ocupación se toman del estado actual; los cobros, trabajos e incidentes del período elegido.</div>
+    <button class="btn bg bfu" onclick="const p=document.getElementById('ppt-prop').value;const r=document.getElementById('ppt-rango').value;closeM();generarPPTPropietario(p,r)">Generar PPTX</button>
+  </div>`);
+}
+
 function exportCuentasExcel(){
   try{
     const wb=XLSX.utils.book_new();
@@ -3239,7 +3499,10 @@ function exportCuentasExcel(){
 // ─── BACK OFFICE (antes Reportes) — solo descargas ──
 function renderRep(){
   document.getElementById('v-rep').innerHTML=`
-    <div class="st">📧 Reporte diario</div>
+    <div class="st">📊 Presentación ejecutiva</div>
+    <div class="ro" onclick="openPPTGenerator()"><div style="font-size:26px">📊</div><div><div class="rtit">Generar presentación (PPTX)</div><div class="rdesc">Reporte por propietario: inmuebles, deudas, OPEX, recomendaciones</div></div></div>
+
+    <div class="st" style="margin-top:14px">📧 Reporte diario</div>
     <div class="ro" onclick="openDailySummary()"><div style="font-size:26px">📧</div><div><div class="rtit">Resumen del día (correo/WA)</div><div class="rdesc">Cobranza, gastos, incidentes, obras</div></div></div>
 
     <div class="st" style="margin-top:14px">📥 Lista inquilinaria (Excel)</div>
