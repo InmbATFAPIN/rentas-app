@@ -242,12 +242,39 @@ textarea.fi{resize:vertical;min-height:60px}
 </div>
 <script>
 // ─── State ─────────────────────────────────────────────
-let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[]};
+let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[],cronograma_estado:[]};
 let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null,propFilter='todos';
 const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MF=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const CATS_GASTO={carros:{n:'Carros',i:'🚗',c:'#5B9BD5'},mantenimiento:{n:'Mantenimiento',i:'🔧',c:'#D4A843'},mano_obra:{n:'Mano de obra',i:'👷',c:'#E58A2C'},servicios:{n:'Pago de servicios',i:'💡',c:'#E0B840'},otros:{n:'Otros',i:'📋',c:'#888'}};
 const TIPOS_OBRA={pintura:{n:'Pintura',i:'🎨'},plomeria:{n:'Plomería',i:'🚰'},cerrajeria:{n:'Cerrajería',i:'🔐'},limpieza:{n:'Limpieza',i:'🧹'},electrica:{n:'Eléctrica',i:'⚡'},otros:{n:'Otros',i:'🔨'}};
+
+// ═══ CRONOGRAMA OPERATIVO ═══
+const ZONAS_CRONO={
+  aragon:{nombre:'Aragón–Estrella',color:'#4472C4',freq:1.0},
+  azcapo:{nombre:'Azcapotzalco',color:'#27AE60',freq:1.0},
+  lindavista:{nombre:'Lindavista',color:'#C9A227',freq:1.0},
+  ecatepec:{nombre:'Zapata (Ecatepec)',color:'#B565A7',freq:0.5},
+  toluca:{nombre:'Toluca',color:'#E67E22',freq:0.0},
+};
+const TAREAS_CRONO_INM=[
+  {id:'cisterna',nombre:'Limpieza cisterna (cloro)',freq:15,icon:'🚰'},
+  {id:'patio',nombre:'Limpieza de patio',freq:7,icon:'🧹'},
+  {id:'escaleras',nombre:'Escaleras y zonas comunes',freq:7,icon:'🪜'},
+  {id:'azotea',nombre:'Limpieza de azotea',freq:7,icon:'🏠'},
+  {id:'pasto',nombre:'Poda de pasto',freq:15,icon:'🌿'},
+];
+const TAREAS_CRONO_AUTO=[
+  {id:'gasolina',nombre:'Refill gasolina',freq:7,icon:'⛽'},
+  {id:'lavado',nombre:'Lavado de auto',freq:4,icon:'🧼'},
+  {id:'niveles',nombre:'Revisión niveles/equipo',freq:4,icon:'🔧'},
+];
+const AUTOS_CRONO=['Ford','Vectra','Monza','Windstar'];
+const DIAS_SEM_C=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+// Estado del cronograma (persiste en DB.cronograma_estado[0])
+let CRONO={ultimaVez:{},zonasFijadas:{},incidentes_extra:[],toluca_ultima:null,cronograma:{},tareas_inm:null,tareas_auto:null};
+let cronoDate=new Date();
+let cronoSub='cal';
 const NIVELES_INC=[{k:1,n:'Baja',c:'#5CB87A'},{k:2,n:'Media',c:'#E0B840'},{k:3,n:'Alta',c:'#E58A2C'},{k:4,n:'Crítica',c:'#E05C5C'}];
 
 // ── Lista de inspección de departamento ──
@@ -340,7 +367,7 @@ let cloudUnsubs = [];
 let saveTimers = {};
 let cloudStateNow = 'offline';
 let cloudMsgNow = 'Sin sincronización';
-const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios'];
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios','cronograma_estado'];
 const PHOTO_COLLS = ['obras','incidentes','inspecciones']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
@@ -564,6 +591,8 @@ function loadDB(){
   migrateToCarteras();
   // Migration: propietarios entities + link all data to them
   migrateToPropietarios();
+  // Cargar estado del cronograma
+  cronoLoad();
   if(firstRun){
     DB.inquilinos=SEED.inquilinos;
     DB.pagos=SEED.pagos.map(p=>({...p,id:uid()}));
@@ -1244,6 +1273,9 @@ function renderCon(){
       </div>
     </button>
 
+    <div class="st">🗓️ Cronograma operativo</div>
+    <div id="crono-body" style="margin-bottom:16px"></div>
+
     <div class="st">⚖️ Conciliación</div>
     <div class="cr" style="margin-bottom:8px">
       <span class="chip${rangeMode==='hoy'?' on':''}" onclick="rangeMode='hoy';renderCon()">Hoy</span>
@@ -1299,6 +1331,7 @@ function renderCon(){
   }
 
   document.getElementById("v-con").innerHTML=html;
+  renderCrono();
 }
 
 // ── Lista Inquilinaria ────────────
@@ -1562,6 +1595,11 @@ function openInmuebleEditForm(inmId,defaultPropId){
         ${DB.propietarios.map(p=>`<option value="${p.id}"${inm.propietarioId===p.id?' selected':''}>${p.nombre}</option>`).join('')}
       </select></div>
     <div class="fg"><label class="fl">Dirección</label><input class="fi" id="im-dir" value="${inm.direccion||''}" placeholder="Calle Número, Colonia, CP"></div>
+    <div class="fg"><label class="fl">Zona (para cronograma de trabajo)</label>
+      <select class="fi" id="im-zona">
+        <option value="">— Sin zona —</option>
+        ${Object.entries(ZONAS_CRONO).map(([k,z])=>`<option value="${k}"${inm.zona===k?' selected':''}>${z.nombre}</option>`).join('')}
+      </select></div>
     <div class="grid2">
       <div class="fg"><label class="fl">Total deptos</label><input class="fi" type="number" min="0" id="im-total" value="${inm.total_depas||tenantsHere.length}"></div>
       <div class="fg"><label class="fl">Ocupados</label><input class="fi" value="${tenantsHere.length}" disabled style="color:var(--dim)"></div>
@@ -1587,6 +1625,7 @@ function saveInmuebleById(id){
   const obj={
     nombre,propietarioId:propId,
     direccion:document.getElementById('im-dir').value.trim(),
+    zona:document.getElementById('im-zona').value,
     total_depas:Number(document.getElementById('im-total').value)||0,
     cuenta_predial:document.getElementById('im-predial').value.trim(),
     cuenta_agua:document.getElementById('im-agua').value.trim(),
@@ -3208,6 +3247,447 @@ function openCuentaDetail(svcId){
 // Export de todas las cuentas con todas las columnas + balance
 // ═══ GENERADOR DE PRESENTACIÓN (PPTX) POR PROPIETARIO ═══
 // Recolecta todos los datos de un propietario para el período dado
+
+// ═══════════════════════════════════════════════════════
+//  MÓDULO CRONOGRAMA OPERATIVO (integrado a rentas-app)
+// ═══════════════════════════════════════════════════════
+
+// ── Persistencia: CRONO vive en DB.cronograma_estado[0] ──
+function cronoLoad(){
+  const rec=DB.cronograma_estado&&DB.cronograma_estado[0];
+  if(rec&&rec.data){try{CRONO=Object.assign(CRONO,typeof rec.data==='string'?JSON.parse(rec.data):rec.data);}catch(e){}}
+  if(!CRONO.tareas_inm)CRONO.tareas_inm=JSON.parse(JSON.stringify(TAREAS_CRONO_INM));
+  if(!CRONO.tareas_auto)CRONO.tareas_auto=JSON.parse(JSON.stringify(TAREAS_CRONO_AUTO));
+}
+function cronoSave(){
+  if(!DB.cronograma_estado)DB.cronograma_estado=[];
+  const payload={id:'crono_main',data:JSON.parse(JSON.stringify(CRONO)),actualizado:nowISO()};
+  if(DB.cronograma_estado[0])DB.cronograma_estado[0]=payload;else DB.cronograma_estado.push(payload);
+  saveDB('cronograma_estado');
+}
+
+// ── Helpers de fecha para cronograma ──
+function cIso(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${dd}`;}
+function cParse(s){const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d);}
+function cAdd(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
+function cDiff(a,b){return Math.round((cParse(a)-cParse(b))/86400000);}
+function cMonthKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;}
+function cWd(d){return (d.getDay()+6)%7;} // 0=Lun..6=Dom
+function cFinde(d){return cWd(d)>=5;}
+function cLigero(d){const w=cWd(d);return w===0||w===6;} // lunes o domingo
+
+// ── Hoy No Circula ──
+function cFindeOrd(d){
+  if(!cFinde(d))return null;
+  const sat=cWd(d)===5?new Date(d):cAdd(d,-1);
+  let count=0,dd=new Date(sat.getFullYear(),sat.getMonth(),1);
+  while(dd<=sat){if(cWd(dd)===5)count++;dd=cAdd(dd,1);}
+  return count;
+}
+function cFindesMes(y,m){let c=0,dd=new Date(y,m,1);while(dd.getMonth()===m){if(cWd(dd)===5)c++;dd=cAdd(dd,1);}return c;}
+function cCircula(auto,d){
+  const w=cWd(d),fo=cFindeOrd(d),tot=cFindesMes(d.getFullYear(),d.getMonth());
+  if(fo===5&&tot>=5)return true;
+  const impar=fo!==null&&fo%2===1,par=fo!==null&&fo%2===0;
+  if(auto==='Ford')return true;
+  if(auto==='Vectra'){if(w===3)return false;if(impar)return false;return true;}
+  if(auto==='Monza'){if(w===2)return false;if(par)return false;return true;}
+  if(auto==='Windstar'){if(w===0)return false;if(impar)return false;return true;}
+  return true;
+}
+
+// ── Inmuebles con zona, agrupados ──
+function cInmueblesConZona(){return DB.inmuebles.filter(i=>i.zona&&ZONAS_CRONO[i.zona]);}
+function cDiasCobro(inm){
+  // Días de cobro reales desde los inquilinos de ese inmueble
+  const dias=new Set();
+  DB.inquilinos.filter(t=>t.estado!=='inactivo'&&(t.inmuebleId===inm.id||t.inmueble===inm.nombre)).forEach(t=>{
+    const d=parseInt(t.dia);if(d>=1&&d<=31)dias.add(d);
+  });
+  return[...dias];
+}
+
+// ── MOTOR DE AGENDADO ──
+function cGenerar(y,m){
+  cronoLoad();
+  const mk=`${y}-${String(m+1).padStart(2,'0')}`;
+  const cron={};
+  const uv=Object.assign({},CRONO.ultimaVez);
+  const setUV=(k,d)=>{uv[k]=cIso(d);};
+  const venc=(k,freq,f)=>{const u=uv[k];if(!u)return 999;return cDiff(cIso(f),u)-freq;};
+  const primero=new Date(y,m,1),ultimo=new Date(y,m+1,0);
+  const zonasList=Object.keys(ZONAS_CRONO).filter(z=>z!=='toluca');
+  const inmsZona=cInmueblesConZona();
+  const inmPorZona={};
+  zonasList.forEach(z=>inmPorZona[z]=inmsZona.filter(i=>i.zona===z));
+
+  // Incidentes activos de la app (DB.incidentes) + extra del cronograma
+  const incidentesApp=DB.incidentes.filter(i=>!i.resuelto).map(i=>{
+    // ubicar zona por el lugar/inmueble
+    const inm=DB.inmuebles.find(x=>{const l=(i.lugar||'').toLowerCase(),n=(x.nombre||'').toLowerCase();return l&&n&&(l.includes(n)||n.includes(l));});
+    const urgente=(i.nivel==='alto'||i.nivel==='urgente');
+    // Agendar automáticamente si cae en este mes y no tiene fecha
+    let fAg=i._cronoFecha||null;
+    if(!fAg){
+      const base=i.fecha&&cParse(i.fecha)>=primero?cParse(i.fecha):primero;
+      // urgente: primer día no-ligero desde base; normal: primer día laboral
+      let dd=new Date(base);
+      for(let k=0;k<20;k++){if(!cLigero(dd)&&dd>=primero&&dd<=ultimo){fAg=cIso(dd);break;}dd=cAdd(dd,1);}
+      if(!fAg)fAg=cIso(primero);
+    }
+    return{titulo:i.descripcion||i.numero||'Incidente',inmueble:inm?inm.nombre:(i.lugar||''),zona:inm?inm.zona:null,fecha_agendada:fAg,urgente,src:'app',id:i.id};
+  });
+
+  for(let dd=new Date(primero);dd<=ultimo;dd=cAdd(dd,1)){
+    const fecha=cIso(dd);
+    const tareasHoy=[];
+    const ligero=cLigero(dd);
+
+    // 1. Incidentes agendados hoy
+    incidentesApp.filter(i=>i.fecha_agendada===fecha).forEach(i=>{
+      tareasHoy.push({tipo:'incidente',zona:i.zona||'inc',titulo:'🚨 '+i.titulo,detalle:i.inmueble||'',incId:i.id});
+    });
+    (CRONO.incidentes_extra||[]).filter(i=>!i.resuelto&&i.fecha_agendada===fecha).forEach(i=>{
+      tareasHoy.push({tipo:'incidente',zona:i.zona||'inc',titulo:'🚨 '+i.titulo,detalle:i.inmueble||'',incId:i.id});
+    });
+
+    // 2. Autos (en base)
+    const autoTasks=[];
+    CRONO.tareas_auto.forEach(t=>{
+      AUTOS_CRONO.forEach(a=>{
+        const k=`auto|${a}|${t.id}`;
+        const v=venc(k,t.freq,dd);
+        const umbral=ligero?1:0;
+        if(v>=umbral)autoTasks.push({tipo:'auto',zona:'autos',titulo:`${t.icon} ${t.nombre}: ${a}`,detalle:cCircula(a,dd)?'circula':'en base',auto:a,tarea:t.id,venc:v,k});
+      });
+    });
+    autoTasks.sort((a,b)=>b.venc-a.venc);
+    const maxAutos=ligero?2:4;
+    autoTasks.slice(0,maxAutos).forEach(t=>{tareasHoy.push(t);setUV(t.k,dd);});
+
+    // 3. Mantenimiento por zona (agrupado)
+    const zonaFijada=CRONO.zonasFijadas[fecha];
+    const calcZona=(forzar)=>{
+      const sz={};
+      zonasList.forEach(z=>{
+        let score=0,detalle=[];
+        inmPorZona[z].forEach(inm=>{
+          CRONO.tareas_inm.forEach(t=>{
+            const freqAj=Math.round(t.freq/(ZONAS_CRONO[z].freq||1));
+            const k=`${inm.nombre}|${t.id}`;
+            const v=venc(k,freqAj,dd);
+            const umbralV=forzar===z?-3:-1;
+            if(v>=umbralV){score+=(v+2);detalle.push({inm:inm.nombre,tarea:t,k,v});}
+          });
+        });
+        const diaMes=dd.getDate();
+        const cobrosHoy=inmPorZona[z].filter(inm=>cDiasCobro(inm).includes(diaMes));
+        if(cobrosHoy.length)score+=cobrosHoy.length*1.5;
+        sz[z]={score,detalle,cobros:cobrosHoy};
+      });
+      return sz;
+    };
+    let presup=ligero?3:10;
+    if(zonaFijada&&ZONAS_CRONO[zonaFijada]){
+      const sz=calcZona(zonaFijada),sel=sz[zonaFijada];
+      sel.detalle.sort((a,b)=>b.v-a.v).forEach(d2=>{
+        tareasHoy.push({tipo:'mant',zona:zonaFijada,titulo:`${d2.tarea.icon} ${d2.tarea.nombre}`,detalle:d2.inm,inm:d2.inm,tarea:d2.tarea.id,fijada:true});
+        setUV(d2.k,dd);
+      });
+      sel.cobros.forEach(inm=>tareasHoy.push({tipo:'cobro',zona:zonaFijada,titulo:`💵 Cobranza ${inm.nombre}`,detalle:'día de cobro',inm:inm.nombre}));
+    }else if(!ligero){
+      const sz=calcZona(null);
+      const mejor=zonasList.map(z=>({z,...sz[z]})).filter(x=>x.score>=3).sort((a,b)=>b.score-a.score)[0];
+      if(mejor){
+        mejor.detalle.sort((a,b)=>b.v-a.v).forEach(d2=>{
+          if(presup<=0)return;
+          tareasHoy.push({tipo:'mant',zona:mejor.z,titulo:`${d2.tarea.icon} ${d2.tarea.nombre}`,detalle:d2.inm,inm:d2.inm,tarea:d2.tarea.id});
+          setUV(d2.k,dd);presup-=1.2;
+        });
+        mejor.cobros.forEach(inm=>tareasHoy.push({tipo:'cobro',zona:mejor.z,titulo:`💵 Cobranza ${inm.nombre}`,detalle:'día de cobro',inm:inm.nombre}));
+      }
+    }else{
+      const diaMes=dd.getDate();
+      zonasList.forEach(z=>{
+        inmPorZona[z].filter(inm=>cDiasCobro(inm).includes(diaMes)).forEach(inm=>{
+          tareasHoy.push({tipo:'cobro',zona:z,titulo:`💵 Cobranza ${inm.nombre}`,detalle:'día de cobro (ligero)',inm:inm.nombre});
+        });
+      });
+    }
+
+    // 4. Cobros de otras zonas (recordatorio, solo días normales)
+    if(!ligero){
+      const zonasConTareas=new Set(tareasHoy.filter(t=>t.tipo==='mant').map(t=>t.zona));
+      const diaMes=dd.getDate();
+      zonasList.forEach(z=>{
+        if(zonasConTareas.has(z))return;
+        inmPorZona[z].filter(inm=>cDiasCobro(inm).includes(diaMes)).forEach(inm=>{
+          if(tareasHoy.some(t=>t.inm===inm.nombre&&t.tipo==='cobro'))return;
+          tareasHoy.push({tipo:'cobro',zona:z,titulo:`💵 Cobranza ${inm.nombre}`,detalle:'día de cobro',inm:inm.nombre});
+        });
+      });
+    }
+
+    if(tareasHoy.length)cron[fecha]=tareasHoy;
+  }
+
+  // Toluca bimestral
+  const tolFreq=60;
+  const necTol=!CRONO.toluca_ultima||cDiff(cIso(ultimo),CRONO.toluca_ultima)>=tolFreq;
+  const hayToluca=DB.inmuebles.some(i=>i.zona==='toluca');
+  if(necTol&&hayToluca){
+    for(let dd=new Date(y,m,8);dd<=new Date(y,m,20);dd=cAdd(dd,1)){
+      if(!cLigero(dd)){const f=cIso(dd);if(!cron[f])cron[f]=[];cron[f].push({tipo:'mant',zona:'toluca',titulo:'🚙 Visita Toluca (bimestral)',detalle:'revisión general'});break;}
+    }
+  }
+
+  CRONO.cronograma[mk]=cron;
+  cronoSave();
+  return cron;
+}
+
+// ── RENDER: vista principal cronograma dentro de Gestión ──
+function renderCrono(){
+  cronoLoad();
+  const cont=document.getElementById('crono-body');
+  if(!cont)return;
+  const sinZona=DB.inmuebles.filter(i=>!i.zona).length;
+  const conZona=cInmueblesConZona().length;
+  let sub=`<div class="cr" style="margin-bottom:10px">
+    <span class="chip${cronoSub==='cal'?' on':''}" onclick="cronoSub='cal';renderCrono()">🗓️ Calendario</span>
+    <span class="chip${cronoSub==='autos'?' on':''}" onclick="cronoSub='autos';renderCrono()">🚗 Autos</span>
+    <span class="chip${cronoSub==='config'?' on':''}" onclick="cronoSub='config';renderCrono()">⚙️ Config</span>
+  </div>`;
+  if(conZona===0){
+    cont.innerHTML=sub+`<div class="es"><div class="ei">🗺️</div><div class="et">Ningún inmueble tiene zona asignada</div>
+      <div style="font-size:12px;color:var(--dim);margin:10px 0">Para usar el cronograma, asigna una zona a cada inmueble desde Propietarios → editar inmueble (⚙️).</div>
+      <button class="btn bg" onclick="cronoAsignarZonasAuto()">Auto-asignar zonas conocidas</button></div>`;
+    return;
+  }
+  if(cronoSub==='cal')cont.innerHTML=sub+renderCronoCal()+(sinZona>0?`<div style="font-size:11px;color:var(--dim);text-align:center;margin-top:10px">${sinZona} inmueble(s) sin zona no aparecen. Asígnalas en Propietarios.</div>`:'');
+  else if(cronoSub==='autos')cont.innerHTML=sub+renderCronoAutos();
+  else if(cronoSub==='config')cont.innerHTML=sub+renderCronoConfig();
+}
+
+function renderCronoCal(){
+  const y=cronoDate.getFullYear(),m=cronoDate.getMonth();
+  const mk=cMonthKey(cronoDate);
+  let cron=CRONO.cronograma[mk];
+  if(!cron)cron=cGenerar(y,m);
+  const primero=new Date(y,m,1),ultimo=new Date(y,m+1,0);
+  const startPad=cWd(primero);
+  const hoy=cIso(new Date());
+  const MESES_C=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  let html=`<div style="display:flex;justify-content:center;align-items:center;gap:10px;margin:6px 0 12px">
+    <button class="btn bo bsm" onclick="cronoChMonth(-1)">‹</button>
+    <div style="font-weight:700;font-size:15px;text-transform:capitalize;min-width:140px;text-align:center">${MESES_C[m]} ${y}</div>
+    <button class="btn bo bsm" onclick="cronoChMonth(1)">›</button>
+    <button class="btn bs bsm" onclick="cronoHoy()">Hoy</button>
+  </div>
+  <button class="btn bg bfu" style="margin-bottom:10px" onclick="cronoRegen()">🔄 Recalcular mes</button>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px">${DIAS_SEM_C.map(d=>`<div style="text-align:center;font-size:9px;color:var(--dim);font-weight:700;padding:2px 0">${d}</div>`).join('')}</div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">`;
+  for(let i=0;i<startPad;i++)html+='<div></div>';
+  for(let dd=new Date(primero);dd<=ultimo;dd=cAdd(dd,1)){
+    const f=cIso(dd);
+    const tareas=cron[f]||[];
+    const ligero=cLigero(dd);
+    const isToday=f===hoy;
+    const zColor=t=>t.tipo==='incidente'?'#E05C5C':t.tipo==='cobro'?'transparent':t.zona==='autos'?'#16A2B8':(ZONAS_CRONO[t.zona]?ZONAS_CRONO[t.zona].color:'#888');
+    let dots='';
+    const zonasDia=[...new Set(tareas.filter(t=>t.tipo==='mant').map(t=>t.zona))];
+    zonasDia.slice(0,3).forEach(z=>{dots+=`<span style="width:6px;height:6px;border-radius:2px;background:${ZONAS_CRONO[z]?ZONAS_CRONO[z].color:'#888'};display:inline-block"></span>`;});
+    if(tareas.some(t=>t.tipo==='auto'))dots+=`<span style="width:6px;height:6px;border-radius:50%;background:#16A2B8;display:inline-block"></span>`;
+    if(tareas.some(t=>t.tipo==='cobro'))dots+=`<span style="width:6px;height:6px;border-radius:50%;border:1px solid #E05C5C;display:inline-block"></span>`;
+    if(tareas.some(t=>t.tipo==='incidente'))dots+=`<span style="width:6px;height:6px;border-radius:50%;background:#E05C5C;display:inline-block"></span>`;
+    const nMant=tareas.filter(t=>t.tipo==='mant').length;
+    html+=`<div onclick="cronoOpenDay('${f}')" style="background:${isToday?'#D4A84322':'var(--s1)'};border:1px solid ${isToday?'var(--gold,#C9A227)':'#222'};border-radius:7px;min-height:62px;padding:4px;cursor:pointer;display:flex;flex-direction:column;${ligero?'background-image:repeating-linear-gradient(45deg,transparent,transparent 5px,#ffffff08 5px,#ffffff08 10px)':''}">
+      <div style="font-size:11px;font-weight:700;display:flex;justify-content:space-between">${dd.getDate()}${CRONO.zonasFijadas[f]?'<span style="font-size:8px">📌</span>':''}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:3px">${dots}</div>
+      ${nMant>0?`<div style="font-size:8px;color:var(--dim);margin-top:auto">${nMant} tareas</div>`:''}
+    </div>`;
+  }
+  html+='</div>';
+  // Leyenda
+  html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
+  Object.entries(ZONAS_CRONO).forEach(([k,z])=>{
+    if(!DB.inmuebles.some(i=>i.zona===k))return;
+    html+=`<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--dim)"><span style="width:9px;height:9px;border-radius:2px;background:${z.color}"></span>${z.nombre}</div>`;
+  });
+  html+=`<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--dim)"><span style="width:9px;height:9px;border-radius:50%;background:#16A2B8"></span>Autos</div>`;
+  html+=`<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--dim)"><span style="width:9px;height:9px;border-radius:50%;border:1px solid #E05C5C"></span>Cobranza</div></div>`;
+  return html;
+}
+
+function cronoChMonth(n){cronoDate=new Date(cronoDate.getFullYear(),cronoDate.getMonth()+n,1);renderCrono();}
+function cronoHoy(){cronoDate=new Date();renderCrono();}
+function cronoRegen(){cGenerar(cronoDate.getFullYear(),cronoDate.getMonth());renderCrono();snack('✓ Cronograma recalculado');}
+
+function cronoOpenDay(f){
+  const d=cParse(f);
+  const mk=cMonthKey(d);
+  const cron=CRONO.cronograma[mk]||{};
+  const tareas=cron[f]||[];
+  const ligero=cLigero(d);
+  const MESES_C=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const nombreDia=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][cWd(d)];
+  const zonaFijada=CRONO.zonasFijadas[f];
+  const autoPills=AUTOS_CRONO.map(a=>`<span class="pill" style="padding:3px 8px;border-radius:12px;background:var(--s2);border:1px solid #333;font-size:10px;${cCircula(a,d)?'':'opacity:.4;text-decoration:line-through'}">${a}</span>`).join(' ');
+  const zonaOpts=Object.entries(ZONAS_CRONO).map(([k,z])=>`<option value="${k}"${zonaFijada===k?' selected':''}>${z.nombre}</option>`).join('');
+  let body=`<div class="ms"><div class="mh"></div>
+    <div class="mt2">${nombreDia} ${d.getDate()} de ${MESES_C[d.getMonth()]}</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px">${ligero?'🟡 Día ligero (dom/lun) — carga reducida':'🟢 Día normal (Freddy)'}${zonaFijada?' · 📌 zona fijada':''}</div>
+    <div style="font-size:11px;margin-bottom:12px">🚗 Circulan: ${autoPills}</div>
+    <div class="fg" style="background:var(--s1);padding:10px 12px;border-radius:9px">
+      <label class="fl">📌 ¿En qué zona estarás este día?</label>
+      <div style="display:flex;gap:8px">
+        <select class="fi" id="crono-zona-manual" style="flex:1"><option value="">— Automático —</option>${zonaOpts}</select>
+        <button class="btn bg bsm" onclick="cronoFijarZona('${f}')">Aplicar</button>
+      </div>
+      ${zonaFijada?`<button class="btn bo bsm" style="width:100%;margin-top:8px" onclick="cronoQuitarZona('${f}')">Quitar zona fija</button>`:''}
+    </div>`;
+  if(tareas.length===0){
+    body+=`<div class="es"><div class="ei">🌤️</div><div class="et">Sin tareas este día</div></div>`;
+  }else{
+    tareas.forEach(t=>{
+      const c=t.tipo==='incidente'?'#E05C5C':t.tipo==='cobro'?'#E05C5C':t.zona==='autos'?'#16A2B8':(ZONAS_CRONO[t.zona]?ZONAS_CRONO[t.zona].color:'#888');
+      body+=`<div style="background:var(--s1);border-radius:9px;padding:10px 12px;margin-bottom:6px;border-left:3px solid ${c}">
+        <div style="font-weight:600;font-size:13px">${t.titulo}${t.fijada?' 📌':''}</div>
+        <div style="font-size:11px;color:var(--dim);margin-top:2px">${t.detalle||''}${t.zona&&ZONAS_CRONO[t.zona]?' · '+ZONAS_CRONO[t.zona].nombre:''}</div>
+      </div>`;
+    });
+  }
+  body+=`<div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn bg" style="flex:1" onclick="cronoExportWA('${f}')">📱 WhatsApp</button>
+    <button class="btn bo" onclick="closeM()">Cerrar</button>
+  </div></div>`;
+  modal(body);
+}
+
+function cronoFijarZona(f){
+  const z=document.getElementById('crono-zona-manual').value;
+  if(!z){cronoQuitarZona(f);return;}
+  CRONO.zonasFijadas[f]=z;
+  const d=cParse(f);cGenerar(d.getFullYear(),d.getMonth());cronoSave();
+  snack('📌 Zona fijada: '+ZONAS_CRONO[z].nombre);cronoOpenDay(f);
+}
+function cronoQuitarZona(f){
+  delete CRONO.zonasFijadas[f];
+  const d=cParse(f);cGenerar(d.getFullYear(),d.getMonth());cronoSave();
+  snack('Volviendo a automático');cronoOpenDay(f);
+}
+
+function cronoExportWA(f){
+  const d=cParse(f);const mk=cMonthKey(d);const cron=CRONO.cronograma[mk]||{};const tareas=cron[f]||[];
+  const nombreDia=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][cWd(d)];
+  const circulan=AUTOS_CRONO.filter(a=>cCircula(a,d));
+  let txt=`🗓️ *AGENDA ${nombreDia.toUpperCase()} ${d.getDate()}/${d.getMonth()+1}*\n_Inmobiliaria_\n\n`;
+  const mant=tareas.filter(t=>t.tipo==='mant'),autos=tareas.filter(t=>t.tipo==='auto'),cobros=tareas.filter(t=>t.tipo==='cobro'),incs=tareas.filter(t=>t.tipo==='incidente');
+  if(incs.length){txt+=`🚨 *INCIDENTES*\n`;incs.forEach(t=>txt+=`• ${t.titulo.replace('🚨 ','')}${t.detalle?' ('+t.detalle+')':''}\n`);txt+=`\n`;}
+  if(mant.length){
+    const porZona={};mant.forEach(t=>{porZona[t.zona]=porZona[t.zona]||[];porZona[t.zona].push(t);});
+    Object.entries(porZona).forEach(([z,ts])=>{
+      txt+=`📍 *${(ZONAS_CRONO[z]?ZONAS_CRONO[z].nombre:z).toUpperCase()}*\n`;
+      const porInm={};ts.forEach(t=>{porInm[t.inm]=porInm[t.inm]||[];porInm[t.inm].push(t.titulo.replace(/^\S+\s/,''));});
+      Object.entries(porInm).forEach(([inm,tt])=>txt+=`  🏠 ${inm}: ${tt.join(', ')}\n`);
+      txt+=`\n`;
+    });
+  }
+  if(cobros.length){
+    const zonasVis=new Set(mant.map(t=>t.zona));
+    const enZona=cobros.filter(t=>{const inm=DB.inmuebles.find(i=>i.nombre===t.inm);return inm&&zonasVis.has(inm.zona);});
+    const otras=cobros.filter(t=>!enZona.includes(t));
+    txt+=`💵 *COBRANZA*\n`;
+    enZona.forEach(t=>txt+=`• ${t.inm}\n`);
+    if(otras.length){txt+=`_(otras zonas, si te queda de paso):_\n`;otras.forEach(t=>{const inm=DB.inmuebles.find(i=>i.nombre===t.inm);const zn=inm&&ZONAS_CRONO[inm.zona]?ZONAS_CRONO[inm.zona].nombre:'';txt+=`• ${t.inm} ${zn?'('+zn+')':''}\n`;});}
+    txt+=`\n`;
+  }
+  if(autos.length){txt+=`🚗 *AUTOS* (en base)\n`;autos.forEach(t=>txt+=`• ${t.titulo.replace(/^\S+\s/,'')}\n`);txt+=`\n`;}
+  txt+=`🚙 _Circulan hoy: ${circulan.join(', ')}_`;
+  if(tareas.length===0)txt=`🗓️ *${nombreDia} ${d.getDate()}/${d.getMonth()+1}*\n\nSin tareas programadas.`;
+  const enc=encodeURIComponent(txt);
+  modal(`<div class="ms"><div class="mh"></div><div class="mt2">📱 Agenda para WhatsApp</div>
+    <textarea class="fi" id="crono-wa" style="height:260px;font-size:12px;font-family:monospace;white-space:pre-wrap" readonly>${txt.replace(/</g,'&lt;')}</textarea>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn bg" style="flex:1" onclick="cronoCopiarWA()">📋 Copiar</button>
+      <a class="btn bs" style="flex:1;text-align:center;text-decoration:none;line-height:1.8" href="https://wa.me/?text=${enc}" target="_blank">📱 WhatsApp</a>
+    </div>
+    <button class="btn bo bfu" style="margin-top:8px" onclick="cronoOpenDay('${f}')">‹ Volver</button></div>`);
+}
+function cronoCopiarWA(){
+  const ta=document.getElementById('crono-wa');ta.select();
+  try{navigator.clipboard.writeText(ta.value).then(()=>snack('✓ Copiado'));}catch(e){document.execCommand('copy');snack('✓ Copiado');}
+}
+
+function renderCronoAutos(){
+  const y=cronoDate.getFullYear(),m=cronoDate.getMonth();
+  const ultimo=new Date(y,m+1,0);
+  const MESES_C=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  let html=`<div style="text-align:center;font-weight:700;margin:8px 0 12px;text-transform:capitalize">${MESES_C[m]} ${y}</div>
+  <div style="font-size:11px;color:#9fc0e0;background:#1a2430;border:1px solid #24405c;border-radius:9px;padding:10px;margin-bottom:12px">Las tareas de auto se hacen en base aunque el auto no circule. Esto solo muestra disponibilidad para campo.</div>
+  <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
+    <tr style="color:var(--dim)"><th style="text-align:left;padding:5px">Día</th>${AUTOS_CRONO.map(a=>`<th style="padding:5px">${a}</th>`).join('')}</tr>`;
+  for(let dd=new Date(y,m,1);dd<=ultimo;dd=cAdd(dd,1)){
+    const ligero=cLigero(dd);
+    html+=`<tr style="border-top:1px solid #222${ligero?';background:#ffffff05':''}">
+      <td style="padding:5px;font-weight:600">${dd.getDate()} ${DIAS_SEM_C[cWd(dd)]}${cFindeOrd(dd)?` <span style="color:var(--dim);font-size:9px">F${cFindeOrd(dd)}</span>`:''}</td>
+      ${AUTOS_CRONO.map(a=>`<td style="padding:5px;text-align:center">${cCircula(a,dd)?'<span style="color:#27AE60">✓</span>':'<span style="color:#E05C5C">✗</span>'}</td>`).join('')}</tr>`;
+  }
+  html+=`</table></div>`;
+  return html;
+}
+
+function renderCronoConfig(){
+  cronoLoad();
+  let html=`<div style="margin-top:8px"><div class="st-sm">Tareas por inmueble</div>`;
+  CRONO.tareas_inm.forEach(t=>{
+    html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #1e1e1e">
+      <span style="font-size:13px">${t.icon} ${t.nombre}</span>
+      <span style="font-size:12px;color:var(--dim)">cada <input type="number" value="${t.freq}" style="width:48px;background:var(--s2);border:1px solid #333;border-radius:6px;padding:4px;color:var(--txt,#fff);text-align:center" onchange="cronoSetFreq('inm','${t.id}',this.value)"> días</span>
+    </div>`;
+  });
+  html+=`<div class="st-sm" style="margin-top:14px">Tareas de autos</div>`;
+  CRONO.tareas_auto.forEach(t=>{
+    html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #1e1e1e">
+      <span style="font-size:13px">${t.icon} ${t.nombre}</span>
+      <span style="font-size:12px;color:var(--dim)">cada <input type="number" value="${t.freq}" style="width:48px;background:var(--s2);border:1px solid #333;border-radius:6px;padding:4px;color:var(--txt,#fff);text-align:center" onchange="cronoSetFreq('auto','${t.id}',this.value)"> días</span>
+    </div>`;
+  });
+  // Estado de zonas
+  html+=`<div class="st-sm" style="margin-top:14px">Inmuebles por zona</div>`;
+  Object.entries(ZONAS_CRONO).forEach(([k,z])=>{
+    const inms=DB.inmuebles.filter(i=>i.zona===k);
+    if(inms.length===0)return;
+    html+=`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1e1e1e;font-size:12px">
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:2px;background:${z.color}"></span>${z.nombre}</span>
+      <span style="color:var(--dim)">${inms.map(i=>i.nombre).join(', ')}</span></div>`;
+  });
+  const sinZona=DB.inmuebles.filter(i=>!i.zona);
+  if(sinZona.length)html+=`<div style="font-size:11px;color:#E05C5C;margin-top:10px">⚠️ Sin zona: ${sinZona.map(i=>i.nombre).join(', ')} — asígnalas en Propietarios (⚙️)</div>`;
+  html+=`<button class="btn bo" style="width:100%;margin-top:14px" onclick="cronoRegen()">🔄 Recalcular con estos cambios</button>`;
+  html+=`</div>`;
+  return html;
+}
+function cronoSetFreq(tipo,id,val){
+  const arr=tipo==='inm'?CRONO.tareas_inm:CRONO.tareas_auto;
+  const t=arr.find(x=>x.id===id);if(t)t.freq=Number(val)||t.freq;
+  cronoSave();
+}
+
+// Auto-asignar zonas conocidas (mapeo validado)
+function cronoAsignarZonasAuto(){
+  const MAP={'AEROLITO':'aragon','JASPE':'aragon','PATA ROSA':'aragon','PATA VERDE':'aragon','CALLE 19':'azcapo','CALLE 24':'azcapo','ETEN 595':'lindavista','ETEN 687':'lindavista','ZAPATA':'ecatepec'};
+  let n=0;
+  DB.inmuebles.forEach(i=>{
+    const key=(i.nombre||'').trim().toUpperCase();
+    if(!i.zona&&MAP[key]){i.zona=MAP[key];n++;}
+  });
+  saveDB('inmuebles');
+  snack(`✓ ${n} inmuebles asignados a su zona`);
+  renderCrono();
+}
+
+
 function buildPropietarioReporte(propId,rango){
   const prop=getPropietario(propId);
   if(!prop)return null;
@@ -3224,6 +3704,11 @@ function buildPropietarioReporte(propId,rango){
     const inqIds=tenants.map(t=>t.id);
     const pagosPeriodo=DB.pagos.filter(p=>p.pagado&&inqIds.includes(p.iid)&&inRango(p.fecha_pago));
     const cobradoPeriodo=pagosPeriodo.reduce((s,p)=>s+Number(p.monto||0),0);
+    // Detalle de cobros: quién pagó y cuánto (para la lista en la diapositiva)
+    const cobrosDetalle=pagosPeriodo.map(p=>{
+      const t=DB.inquilinos.find(x=>x.id===p.iid);
+      return{nombre:t?.nombre||'?',interior:t?.interior||'',monto:Number(p.monto||0),fecha:new Date(p.fecha_pago)};
+    }).sort((a,b)=>b.monto-a.monto);
     // Cobrado del mes actual (para % esperado mensual)
     const pagosMes=DB.pagos.filter(p=>p.pagado&&inqIds.includes(p.iid)&&p.mes===HM&&p.anio===HA);
     const cobradoMes=pagosMes.reduce((s,p)=>s+Number(p.monto||0),0);
@@ -3247,15 +3732,33 @@ function buildPropietarioReporte(propId,rango){
     const deudaLuz=deudaLuzArr.reduce((s,x)=>s+x.monto,0);
     const deudaAgua=svcs.filter(s=>norm(s.tipo)==='agua').reduce((s,sv)=>s+Math.max(0,getServicioBalance(sv.id)),0);
     const deudaPredial=svcs.filter(s=>norm(s.tipo)==='predial').reduce((s,sv)=>s+Math.max(0,getServicioBalance(sv.id)),0);
-    return{inm,tenants,totalRenta,cobradoPeriodo,cobradoMes,pendienteMes,totalDepas,ocupados,pctOcup,atrasados,obras,incidentes,deudaLuz,deudaLuzArr,deudaAgua,deudaPredial};
+    return{inm,tenants,totalRenta,cobradoPeriodo,cobrosDetalle,cobradoMes,pendienteMes,totalDepas,ocupados,pctOcup,atrasados,obras,incidentes,deudaLuz,deudaLuzArr,deudaAgua,deudaPredial};
   });
 
   // OPEX (gastos del período por categoría)
   const gastosPeriodo=DB.gastos.filter(g=>g.propietarioId===propId&&inRango(g.fecha));
   const opex={mano_obra:0,carros:0,mantenimiento:0,servicios:0,otros:0};
-  gastosPeriodo.forEach(g=>{const c=g.categoria||'otros';opex[c]=(opex[c]||0)+Number(g.monto||0);});
+  const opexDetalle={mano_obra:[],carros:[],mantenimiento:[],servicios:[],otros:[]};
+  gastosPeriodo.forEach(g=>{
+    const c=g.categoria||'otros';
+    opex[c]=(opex[c]||0)+Number(g.monto||0);
+    if(!opexDetalle[c])opexDetalle[c]=[];
+    // Etiqueta: descripción (y notas si aportan), inmueble
+    const label=(g.descripcion||'').trim()||(g.notas||'').trim()||'(sin descripción)';
+    opexDetalle[c].push({label,inmueble:g.inmueble||'',monto:Number(g.monto||0),notas:(g.notas||'').trim()});
+  });
+  // Agrupar detalle por descripción para no repetir (ej: "Freddy" varias veces -> suma)
+  Object.keys(opexDetalle).forEach(c=>{
+    const agr={};
+    opexDetalle[c].forEach(it=>{
+      const key=it.label.toLowerCase();
+      if(!agr[key])agr[key]={label:it.label,monto:0,count:0};
+      agr[key].monto+=it.monto;agr[key].count++;
+    });
+    opexDetalle[c]=Object.values(agr).sort((a,b)=>b.monto-a.monto);
+  });
 
-  return{prop,rango:r,porInmueble,opex,gastosPeriodo};
+  return{prop,rango:r,porInmueble,opex,opexDetalle,gastosPeriodo};
 }
 
 // Carga PptxGenJS bajo demanda con varios CDN de respaldo
@@ -3357,8 +3860,19 @@ async function generarPPTPropietario(propId,rangoMode){
     // Círculo con % ocupación (sustituye "logo de casa")
     s.addShape(pptx.ShapeType.ellipse,{x:0.7,y:1.7,w:2.2,h:2.2,fill:{color:P.blueBg},line:{color:P.blue,width:2}});
     s.addText([{text:d.pctOcup+'%\n',options:{fontSize:30,bold:true,color:P.navy}},{text:'ocupación\n',options:{fontSize:11,color:P.gray}},{text:d.ocupados+'/'+d.totalDepas+' deptos',options:{fontSize:10,color:P.gray}}],{x:0.7,y:1.7,w:2.2,h:2.2,align:'center',valign:'middle'});
-    // Cobrado del periodo
-    s.addText([{text:'Cobrado ('+data.rango.label+')\n',options:{fontSize:11,color:P.gray}},{text:money(d.cobradoPeriodo),options:{fontSize:20,bold:true,color:P.green}}],{x:0.7,y:4.1,w:2.2,h:1.0,align:'center'});
+    // Cobrado del periodo con lista de quién pagó
+    s.addShape(pptx.ShapeType.roundRect,{x:0.55,y:4.05,w:2.5,h:2.7,fill:{color:'EAF5EE'},line:{color:P.green,width:1},rectRadius:0.05});
+    s.addText([{text:'COBRADO ('+data.rango.label+')\n',options:{fontSize:9,color:P.gray,bold:true}},{text:money(d.cobradoPeriodo),options:{fontSize:19,bold:true,color:P.green}}],{x:0.55,y:4.15,w:2.5,h:0.85,align:'center'});
+    if(d.cobrosDetalle.length===0){
+      s.addText('Sin cobros en el período',{x:0.65,y:5.05,w:2.3,h:0.4,fontSize:9,color:P.gray,italic:true,align:'center'});
+    }else{
+      const cobrosList=d.cobrosDetalle.slice(0,8).map(c=>({
+        text:(c.nombre.split(' ').slice(0,2).join(' '))+(c.interior?' ('+c.interior+')':'')+' — '+money(c.monto),
+        options:{fontSize:9,color:P.dark,bullet:{code:'2022',indent:8},breakLine:true,paraSpaceAfter:2}
+      }));
+      s.addText(cobrosList,{x:0.65,y:5.05,w:2.35,h:1.65,valign:'top'});
+      if(d.cobrosDetalle.length>8)s.addText('+ '+(d.cobrosDetalle.length-8)+' más',{x:0.65,y:6.5,w:2.3,h:0.2,fontSize:8,color:P.gray,italic:true,align:'center'});
+    }
 
     const colX=3.4,colW=9.4;
     // Rentas atrasadas
