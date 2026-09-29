@@ -242,7 +242,7 @@ textarea.fi{resize:vertical;min-height:60px}
 </div>
 <script>
 // ─── State ─────────────────────────────────────────────
-let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[],cronograma_estado:[]};
+let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[],cronograma_estado:[],gastos_favoritos:[]};
 let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null,propFilter='todos';
 const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MF=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -367,7 +367,7 @@ let cloudUnsubs = [];
 let saveTimers = {};
 let cloudStateNow = 'offline';
 let cloudMsgNow = 'Sin sincronización';
-const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios','cronograma_estado'];
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios','cronograma_estado','gastos_favoritos'];
 const PHOTO_COLLS = ['obras','incidentes','inspecciones']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
@@ -1365,6 +1365,7 @@ function renderCon(){
         <div style="font-size:26px">💰</div><div style="font-weight:700;margin-top:4px;font-size:12px">+ Ingreso</div>
       </button>
     </div>
+    ${renderFavoritosBar()}
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
       <button class="btn bo" onclick="openObraForm()" style="padding:10px 4px;font-size:11px">🔨 Obra</button>
       <button class="btn bo" onclick="openIncidenteForm()" style="padding:10px 4px;font-size:11px">🚨 Incidente</button>
@@ -1635,6 +1636,7 @@ function openInmuebleDet(inm){
             <div style="text-align:right"><div style="font-family:'Playfair Display',serif;font-size:15px;color:${deudaLuz>0?'var(--r)':'var(--g)'};font-weight:700">${fmt(deudaLuz)}</div>
             <div style="font-size:9px;color:var(--dim)">deuda luz total</div></div>
           </div>
+          <div style="padding:8px 12px;border-top:1px solid #1e1e1e"><button class="btn bg bfu" onclick="openCapturaLuz('${inm.replace(/'/g,"\\'")}')" style="font-size:11px;padding:8px">⚡ Captura rápida de recibos/deudas</button></div>
           ${luzOpen?`<div style="padding:0 12px 6px">${luces.slice().sort((a,b)=>(a.alias||'').localeCompare(b.alias||'')).map(sv=>svcRow(sv,true)).join('')}</div>`:''}
         </div>`;
       }
@@ -2002,8 +2004,110 @@ function renderGastos(){
   document.getElementById("con-content").innerHTML=html;
 }
 
-function openAddGasto(id){
-  const g=id?DB.gastos.find(x=>x.id===id):{};
+// ── GASTOS FAVORITOS (recurrentes) ──
+function renderFavoritosBar(){
+  const favs=DB.gastos_favoritos||[];
+  let chips=favs.map(f=>{
+    const cat=CATS_GASTO[f.categoria]||CATS_GASTO.otros;
+    return`<button onclick="usarFavorito('${f.id}')" style="flex-shrink:0;background:var(--s1);border:1px solid #333;border-left:3px solid ${cat.c};border-radius:9px;padding:7px 11px;cursor:pointer;text-align:left;color:var(--txt,#fff)">
+      <div style="font-size:12px;font-weight:700;white-space:nowrap">${cat.i} ${f.nombre}</div>
+      <div style="font-size:9px;color:var(--dim);white-space:nowrap">${fmt(f.monto)}${f.inmueble?' · '+f.inmueble:''}</div>
+    </button>`;
+  }).join('');
+  return`<div style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:11px;color:var(--dim);font-weight:600">⭐ Gastos frecuentes</span>
+      <button onclick="openFavoritoForm()" style="background:none;border:none;color:var(--gold);font-size:11px;cursor:pointer;font-weight:600">+ Nuevo</button>
+    </div>
+    ${favs.length===0
+      ? `<div style="font-size:10px;color:var(--dim);padding:8px 10px;background:var(--s1);border-radius:8px;border:1px dashed #333">Crea uno (ej. "Pago Freddy" $350) y luego solo pícalo para cargarlo al instante.</div>`
+      : `<div style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px">${chips}</div>`}
+  </div>`;
+}
+
+function usarFavorito(favId){
+  const f=(DB.gastos_favoritos||[]).find(x=>x.id===favId);
+  if(!f){snack('Favorito no encontrado');return;}
+  // Abrir el form de gasto precargado con los datos del favorito
+  openAddGasto(null,{
+    categoria:f.categoria,propietarioId:f.propietarioId,inmueble:f.inmueble,
+    monto:f.monto,descripcion:f.descripcion||f.nombre,notas:f.notas||''
+  });
+}
+
+function openFavoritoForm(id){
+  const f=id?(DB.gastos_favoritos||[]).find(x=>x.id===id):{};
+  const currentCat=f.categoria||'mano_obra';
+  const currentPropId=f.propietarioId||'';
+  const inmuebles=currentPropId?DB.inmuebles.filter(x=>x.propietarioId===currentPropId):[];
+  modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
+    <div class="mt2">⭐ ${id?'Editar':'Nuevo'} gasto frecuente</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px">Guarda un gasto que se repite. Después lo cargas con un toque y solo confirmas.</div>
+    <div class="fg"><label class="fl">Nombre del botón *</label><input class="fi" id="fav-nombre" value="${(f.nombre||'').replace(/"/g,'&quot;')}" placeholder="Ej: Pago Freddy"></div>
+    <div class="fg"><label class="fl">Categoría</label>
+      <div class="chip-grid" id="fav-cat-chips">
+        ${Object.entries(CATS_GASTO).map(([k,v])=>`<div class="cat-chip${currentCat===k?' on':''}" data-cat="${k}" onclick="favSelectCat('${k}')" style="${currentCat===k?'border-color:'+v.c+';background:'+v.c+'22':''}">${v.i} ${v.n}</div>`).join('')}
+      </div>
+      <input type="hidden" id="fav-cat" value="${currentCat}">
+    </div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Monto $ *</label><input class="fi" type="number" step="0.01" id="fav-monto" value="${f.monto||''}" inputmode="decimal" placeholder="350"></div>
+      <div class="fg"><label class="fl">Descripción</label><input class="fi" id="fav-desc" value="${(f.descripcion||'').replace(/"/g,'&quot;')}" placeholder="Ej: Mano de obra semanal"></div>
+    </div>
+    <div class="fg"><label class="fl">Propietario</label>
+      <select class="fi" id="fav-propId" onchange="favRebuildInms()">
+        <option value="">— Ninguno (elegir al usar) —</option>
+        ${DB.propietarios.map(p=>`<option value="${p.id}"${currentPropId===p.id?' selected':''}>${p.nombre}</option>`).join('')}
+      </select></div>
+    <div class="fg"><label class="fl">Inmueble</label>
+      <select class="fi" id="fav-inm">
+        <option value="">— Ninguno —</option>
+        ${inmuebles.map(im=>`<option value="${im.nombre.replace(/"/g,'&quot;')}"${f.inmueble===im.nombre?' selected':''}>${im.nombre}</option>`).join('')}
+      </select></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      ${id?`<button class="btn bd" onclick="delFavorito('${id}')">🗑️</button>`:''}
+      <button class="btn bg bfu" onclick="saveFavorito('${id||''}')">Guardar favorito</button>
+    </div></div>`);
+}
+function favSelectCat(k){
+  document.getElementById('fav-cat').value=k;
+  document.querySelectorAll('#fav-cat-chips .cat-chip').forEach(el=>{
+    const v=CATS_GASTO[el.dataset.cat]||CATS_GASTO.otros;
+    if(el.dataset.cat===k){el.classList.add('on');el.style.borderColor=v.c;el.style.background=v.c+'22';}
+    else{el.classList.remove('on');el.style.borderColor='#333';el.style.background='';}
+  });
+}
+function favRebuildInms(){
+  const propId=document.getElementById('fav-propId').value;
+  const sel=document.getElementById('fav-inm');
+  const inmuebles=propId?DB.inmuebles.filter(x=>x.propietarioId===propId):[];
+  sel.innerHTML='<option value="">— Ninguno —</option>'+inmuebles.map(im=>`<option value="${im.nombre.replace(/"/g,'&quot;')}">${im.nombre}</option>`).join('');
+}
+function saveFavorito(id){
+  const nombre=document.getElementById('fav-nombre').value.trim();
+  const monto=Number(document.getElementById('fav-monto').value);
+  if(!nombre||!monto){snack('Falta nombre o monto');return;}
+  const obj={
+    nombre,categoria:document.getElementById('fav-cat').value,
+    monto,descripcion:document.getElementById('fav-desc').value.trim(),
+    propietarioId:document.getElementById('fav-propId').value,
+    inmueble:document.getElementById('fav-inm').value.trim(),notas:''
+  };
+  if(!DB.gastos_favoritos)DB.gastos_favoritos=[];
+  if(id){Object.assign(DB.gastos_favoritos.find(x=>x.id===id),obj);}
+  else{DB.gastos_favoritos.push({id:uid(),...obj,creado:nowISO()});}
+  saveDB('gastos_favoritos');closeM();snack('Favorito guardado ✓');
+  if(curView==='con')renderCon();
+}
+function delFavorito(id){
+  if(!confirm('¿Eliminar este gasto frecuente?'))return;
+  DB.gastos_favoritos=(DB.gastos_favoritos||[]).filter(x=>x.id!==id);
+  saveDB('gastos_favoritos');closeM();snack('Eliminado');
+  if(curView==='con')renderCon();
+}
+
+function openAddGasto(id,prefill){
+  const g=id?DB.gastos.find(x=>x.id===id):(prefill||{});
   const currentCat=g.categoria||'mantenimiento';
   const currentPropId=g.propietarioId||'';
   const currentInm=g.inmueble||'';
@@ -2054,7 +2158,9 @@ function openAddGasto(id){
     <div style="display:flex;gap:8px">
       ${id?`<button class="btn bd" onclick="delGasto('${id}')">🗑️</button>`:''}
       <button class="btn bg bfu" onclick="saveGasto('${id||''}')">Guardar gasto</button>
-    </div></div>`);
+    </div>
+    ${!id?`<button class="btn bo bfu" onclick="guardarGastoComoFavorito()" style="margin-top:8px;font-size:11px">⭐ Guardar estos datos como gasto frecuente</button>`:''}
+    </div>`);
   setTimeout(()=>{const el=document.getElementById('g-monto');if(el&&!currentPropId)el.focus();},150);
 }
 
@@ -2115,6 +2221,22 @@ function delGasto(id){
   if(!confirm('¿Eliminar este gasto?'))return;
   DB.gastos=DB.gastos.filter(g=>g.id!==id);
   saveDB('gastos');closeM();snack('Eliminado');renderCon();
+}
+
+// Crear un favorito a partir de lo que hay en el form de gasto abierto
+function guardarGastoComoFavorito(){
+  const desc=document.getElementById('g-desc')?.value.trim()||'';
+  const monto=Number(document.getElementById('g-monto')?.value);
+  if(!monto){snack('Escribe primero un monto');return;}
+  const cat=document.getElementById('g-cat')?.value||'otros';
+  const propId=document.getElementById('g-propId')?.value||'';
+  const inm=document.getElementById('g-inm')?.value.trim()||'';
+  const nombre=prompt('Nombre del botón de acceso rápido:',desc||'Gasto frecuente');
+  if(nombre===null)return;
+  if(!DB.gastos_favoritos)DB.gastos_favoritos=[];
+  DB.gastos_favoritos.push({id:uid(),nombre:nombre.trim()||desc||'Gasto',categoria:cat,monto,descripcion:desc,propietarioId:propId,inmueble:inm,notas:'',creado:nowISO()});
+  saveDB('gastos_favoritos');
+  snack('⭐ Guardado como frecuente');
 }
 
 function openCustomRange(){
@@ -3012,6 +3134,81 @@ function openServicioBalance(svcId){
 }
 
 // ── RECIBOS (suman a la deuda) ──
+// ── CAPTURA RÁPIDA DE LUZ (tabla: recibo/deuda por depto) ──
+function openCapturaLuz(inm){
+  const norm=t=>t==='cfe'?'luz':t;
+  const luces=DB.servicios.filter(s=>s.inmueble===inm&&norm(s.tipo)==='luz')
+    .sort((a,b)=>(a.alias||'').localeCompare(b.alias||'',undefined,{numeric:true}));
+  if(luces.length===0){snack('Este inmueble no tiene medidores de luz');return;}
+  const fechaHoy=todayISO();
+  let filas=luces.map((sv,i)=>{
+    const bal=getServicioBalance(sv.id);
+    const inqV=DB.inquilinos.find(t=>t.cuentaLuzId===sv.id);
+    return`<tr style="border-bottom:1px solid #1e1e1e">
+      <td style="padding:7px 6px;font-size:11px">
+        <div style="font-weight:600">${sv.alias||('Medidor '+(i+1))}</div>
+        <div style="font-size:9px;color:var(--dim)">${sv.medidor?'med '+sv.medidor:''}${inqV?' · 👤 '+inqV.nombre.split(' ')[0]:''}</div>
+      </td>
+      <td style="padding:7px 4px;text-align:right;font-size:11px;color:${bal>0?'var(--r)':'var(--dim)'};white-space:nowrap">${fmt(bal)}</td>
+      <td style="padding:7px 4px">
+        <input type="number" step="0.01" inputmode="decimal" id="cap-${sv.id}" placeholder="0"
+          style="width:78px;background:var(--s2);border:1px solid #333;border-radius:6px;padding:6px 7px;color:var(--txt,#fff);font-size:13px;text-align:right">
+      </td>
+    </tr>`;
+  }).join('');
+  modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
+    <div class="mt2">⚡ Captura rápida — ${inm}</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Escribe el monto del nuevo recibo (o deuda) de cada depto. Se registra como recibo y <b>suma</b> a la deuda de esa cuenta. Deja en blanco los que no cambian.</div>
+    <div class="grid2" style="margin-bottom:10px">
+      <div class="fg" style="margin:0"><label class="fl">Fecha de los recibos</label><input class="fi" type="date" id="cap-fecha" value="${fechaHoy}"></div>
+      <div class="fg" style="margin:0"><label class="fl">Concepto (común)</label><input class="fi" id="cap-concepto" placeholder="Ej: Bim 5 2026"></div>
+    </div>
+    <div style="overflow-x:auto;border:1px solid #262626;border-radius:9px">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--s2)">
+        <th style="text-align:left;padding:7px 6px;font-size:9px;color:var(--dim);text-transform:uppercase">Depto</th>
+        <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Deuda actual</th>
+        <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Nuevo recibo $</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>
+    <div style="font-size:10px;color:var(--dim);margin-top:8px;text-align:center" id="cap-resumen">—</div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn bo" onclick="openInmuebleDet('${inm.replace(/'/g,"\\'")}')">Cancelar</button>
+      <button class="btn bg bfu" onclick="guardarCapturaLuz('${inm.replace(/'/g,"\\'")}')">Guardar recibos</button>
+    </div>
+    <div style="height:14px"></div></div>`);
+  // Resumen en vivo
+  const ids=luces.map(s=>s.id);
+  const upd=()=>{
+    let n=0,tot=0;
+    ids.forEach(id=>{const v=Number(document.getElementById('cap-'+id)?.value);if(v>0){n++;tot+=v;}});
+    const el=document.getElementById('cap-resumen');
+    if(el)el.textContent=n===0?'Sin capturas aún':`${n} recibo(s) · suma ${fmt(tot)}`;
+  };
+  ids.forEach(id=>{const inp=document.getElementById('cap-'+id);if(inp)inp.addEventListener('input',upd);});
+}
+
+function guardarCapturaLuz(inm){
+  const norm=t=>t==='cfe'?'luz':t;
+  const luces=DB.servicios.filter(s=>s.inmueble===inm&&norm(s.tipo)==='luz');
+  const fecha=document.getElementById('cap-fecha').value||todayISO();
+  const concepto=document.getElementById('cap-concepto').value.trim();
+  let n=0,tot=0;
+  luces.forEach(sv=>{
+    const inp=document.getElementById('cap-'+sv.id);
+    const monto=Number(inp?.value);
+    if(monto>0){
+      DB.recibos_servicios.push({id:uid(),servicioId:sv.id,monto,fecha,concepto:concepto||'Recibo',notas:'Captura rápida',creado:nowISO()});
+      n++;tot+=monto;
+    }
+  });
+  if(n===0){snack('No capturaste ningún monto');return;}
+  saveDB('recibos_servicios');
+  snack(`✓ ${n} recibo(s) por ${fmt(tot)}`);
+  openInmuebleDet(inm);
+}
+
 function openReciboForm(svcId,id){
   const r=id?DB.recibos_servicios.find(x=>x.id===id):{};
   modal(`<div class="ms"><div class="mh"></div>
