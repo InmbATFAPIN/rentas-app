@@ -3171,6 +3171,10 @@ function openCapturaLuz(inm){
     const numServicio=sv.cuenta||'(sin número de servicio)';
     const subtitulo=[sv.alias,inqV?'👤 '+inqV.nombre.split(' ')[0]:''].filter(Boolean).join(' · ');
     return`<tr style="border-bottom:1px solid #1e1e1e">
+      <td style="padding:7px 4px;text-align:center">
+        <input type="checkbox" id="pay-${sv.id}" ${sv.pagar_yo?'checked':''} onchange="toggleServicioPagar('${sv.id}')"
+          style="width:18px;height:18px;accent-color:var(--gold);cursor:pointer">
+      </td>
       <td style="padding:7px 6px;font-size:11px">
         <div style="font-weight:700;font-family:monospace;color:${sv.cuenta?'var(--txt,#fff)':'var(--r)'}">${numServicio}</div>
         <div style="font-size:9px;color:var(--dim)">${subtitulo}</div>
@@ -3178,13 +3182,14 @@ function openCapturaLuz(inm){
       <td style="padding:7px 4px;text-align:right;font-size:11px;color:${bal>0?'var(--r)':'var(--dim)'};white-space:nowrap">${fmt(bal)}</td>
       <td style="padding:7px 4px">
         <input type="number" step="0.01" inputmode="decimal" id="cap-${sv.id}" placeholder="0"
-          style="width:78px;background:var(--s2);border:1px solid #333;border-radius:6px;padding:6px 7px;color:var(--txt,#fff);font-size:13px;text-align:right">
+          style="width:72px;background:var(--s2);border:1px solid #333;border-radius:6px;padding:6px 7px;color:var(--txt,#fff);font-size:13px;text-align:right">
       </td>
     </tr>`;
   }).join('');
+  const nPagar=luces.filter(s=>s.pagar_yo).length;
   modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
     <div class="mt2">⚡ Captura rápida — ${inm}</div>
-    <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Escribe el monto del nuevo recibo de cada <b>número de servicio</b>. Se registra como recibo y <b>suma</b> a la deuda de esa cuenta. Deja en blanco los que no cambian.</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Marca ☑ los servicios que <b>te toca pagar</b> (se guarda). Escribe el monto del nuevo recibo de cada número de servicio; se registra como recibo y <b>suma</b> a la deuda. Deja en blanco los que no cambian.</div>
     <div class="grid2" style="margin-bottom:10px">
       <div class="fg" style="margin:0"><label class="fl">Fecha de los recibos</label><input class="fi" type="date" id="cap-fecha" value="${fechaHoy}"></div>
       <div class="fg" style="margin:0"><label class="fl">Concepto (común)</label><input class="fi" id="cap-concepto" placeholder="Ej: Bim 5 2026"></div>
@@ -3192,27 +3197,138 @@ function openCapturaLuz(inm){
     <div style="overflow-x:auto;border:1px solid #262626;border-radius:9px">
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="background:var(--s2)">
+        <th style="text-align:center;padding:7px 4px;font-size:9px;color:var(--gold);text-transform:uppercase" title="Me toca pagar">💰</th>
         <th style="text-align:left;padding:7px 6px;font-size:9px;color:var(--dim);text-transform:uppercase">No. servicio</th>
         <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Deuda actual</th>
         <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Nuevo recibo $</th>
       </tr></thead>
       <tbody>${filas}</tbody>
     </table></div>
-    <div style="font-size:10px;color:var(--dim);margin-top:8px;text-align:center" id="cap-resumen">—</div>
+    <div style="font-size:10px;color:var(--dim);margin-top:8px;text-align:center" id="cap-resumen">${nPagar} servicio(s) marcados para pagar</div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn bo" onclick="openInmuebleDet('${inm.replace(/'/g,"\\'")}')">Cancelar</button>
       <button class="btn bg bfu" onclick="guardarCapturaLuz('${inm.replace(/'/g,"\\'")}')">Guardar recibos</button>
     </div>
+    <button class="btn bo bfu" style="margin-top:8px" onclick="openOrdenPago()">🧾 Generar orden de pago (marcados)</button>
     <div style="height:14px"></div></div>`);
   // Resumen en vivo
   const ids=luces.map(s=>s.id);
   const upd=()=>{
     let n=0,tot=0;
     ids.forEach(id=>{const v=Number(document.getElementById('cap-'+id)?.value);if(v>0){n++;tot+=v;}});
+    const nPay=luces.filter(s=>s.pagar_yo).length;
     const el=document.getElementById('cap-resumen');
-    if(el)el.textContent=n===0?'Sin capturas aún':`${n} recibo(s) · suma ${fmt(tot)}`;
+    if(el)el.textContent=n===0?`${nPay} servicio(s) marcados para pagar`:`${n} recibo(s) · suma ${fmt(tot)} · ${nPay} marcados para pagar`;
   };
   ids.forEach(id=>{const inp=document.getElementById('cap-'+id);if(inp)inp.addEventListener('input',upd);});
+}
+
+// Marca/desmarca un servicio como "me toca pagar" (persiste)
+function toggleServicioPagar(svcId){
+  const sv=DB.servicios.find(x=>x.id===svcId);if(!sv)return;
+  sv.pagar_yo=!sv.pagar_yo;
+  saveDB('servicios');
+}
+
+// ── ORDEN DE PAGO (Excel) — servicios marcados "me toca pagar" ──
+function openOrdenPago(propId){
+  // Todos los servicios marcados, opcionalmente filtrados por propietario
+  let marcados=DB.servicios.filter(s=>s.pagar_yo);
+  if(propId)marcados=marcados.filter(s=>s.propietarioId===propId);
+  marcados.sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')||(a.alias||'').localeCompare(b.alias||'',undefined,{numeric:true}));
+  const propOpts=DB.propietarios.map(p=>`<option value="${p.id}"${propId===p.id?' selected':''}>${p.nombre}</option>`).join('');
+  if(marcados.length===0){
+    modal(`<div class="ms"><div class="mh"></div>
+      <div class="mt2">🧾 Orden de pago</div>
+      <div class="fg"><label class="fl">Propietario</label>
+        <select class="fi" id="op-prop" onchange="openOrdenPago(this.value||null)"><option value="">— Todos —</option>${propOpts}</select></div>
+      <div class="es"><div class="ei">☑️</div><div class="et">Ningún servicio marcado como "me toca pagar"</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:10px">Ve a la ficha de un inmueble → ⚡ Captura rápida y marca la casilla 💰 de los servicios que te corresponde pagar.</div></div>
+      <button class="btn bo bfu" style="margin-top:10px" onclick="closeM()">Cerrar</button></div>`);
+    return;
+  }
+  let filas=marcados.map(sv=>{
+    const bal=Math.max(0,getServicioBalance(sv.id));
+    return`<tr style="border-bottom:1px solid #1e1e1e">
+      <td style="padding:6px 5px;font-size:10.5px">
+        <div style="font-weight:600">${sv.alias||sv.inmueble||'—'}</div>
+        <div style="font-size:8.5px;color:var(--dim);font-family:monospace">${sv.cuenta||'sin cuenta'}${sv.medidor?' · '+sv.medidor:''}</div>
+      </td>
+      <td style="padding:6px 4px;font-size:10px;color:var(--dim)">${(sv.nombre_recibo||'').slice(0,16)}</td>
+      <td style="padding:6px 4px;text-align:right;font-size:11px;color:${bal>0?'var(--r)':'var(--dim)'};white-space:nowrap">${fmt(bal)}</td>
+      <td style="padding:6px 4px">
+        <input type="number" step="0.01" inputmode="decimal" id="op-${sv.id}" value="${bal>0?bal:''}" placeholder="0"
+          data-deuda="${bal}"
+          style="width:72px;background:var(--s2);border:1px solid #333;border-radius:6px;padding:5px 6px;color:var(--txt,#fff);font-size:12px;text-align:right" oninput="ordenPagoTotales()">
+      </td>
+    </tr>`;
+  }).join('');
+  modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
+    <div class="mt2">🧾 Orden de pago</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:10px">${marcados.length} servicio(s) marcados. La columna <b>Orden de pago</b> viene con la deuda; bájala si vas a pagar menos. Los que dejes en 0 salen como referencia.</div>
+    <div class="fg" style="margin-bottom:10px"><label class="fl">Propietario</label>
+      <select class="fi" id="op-prop" onchange="openOrdenPago(this.value||null)"><option value="">— Todos —</option>${propOpts}</select></div>
+    <div style="overflow-x:auto;border:1px solid #262626;border-radius:9px">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--s2)">
+        <th style="text-align:left;padding:7px 5px;font-size:9px;color:var(--dim);text-transform:uppercase">Servicio</th>
+        <th style="text-align:left;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Nombre</th>
+        <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Deuda</th>
+        <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--gold);text-transform:uppercase">Orden pago</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>
+    <div style="display:flex;justify-content:space-between;padding:10px 6px;font-size:12px;font-weight:700">
+      <span id="op-tot-lbl">Totales</span>
+      <span><span style="color:var(--dim)">deuda </span><span id="op-tot-deuda">—</span> · <span style="color:var(--gold)">pago </span><span id="op-tot-pago" style="color:var(--gold)">—</span></span>
+    </div>
+    <button class="btn bg bfu" onclick="exportOrdenPagoExcel('${propId||''}')">📊 Descargar Excel</button>
+    <button class="btn bo bfu" style="margin-top:8px" onclick="closeM()">Cerrar</button>
+    <div style="height:14px"></div></div>`);
+  ordenPagoTotales();
+}
+
+function ordenPagoTotales(){
+  let td=0,tp=0;
+  document.querySelectorAll('input[id^="op-"]').forEach(inp=>{
+    if(inp.id==='op-prop')return;
+    td+=Number(inp.dataset.deuda||0);
+    tp+=Number(inp.value||0);
+  });
+  const d=document.getElementById('op-tot-deuda'),p=document.getElementById('op-tot-pago');
+  if(d)d.textContent=fmt(td);
+  if(p)p.textContent=fmt(tp);
+}
+
+function exportOrdenPagoExcel(propId){
+  try{
+    propId=propId||null;
+    let marcados=DB.servicios.filter(s=>s.pagar_yo);
+    if(propId)marcados=marcados.filter(s=>s.propietarioId===propId);
+    marcados.sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')||(a.alias||'').localeCompare(b.alias||'',undefined,{numeric:true}));
+    if(marcados.length===0){snack('No hay servicios marcados');return;}
+    const S=v=>v===null||v===undefined?'':String(v);
+    const header=['INMUEBLE','MEDIDOR','CUENTA','NOMBRE','DEUDA','ORDEN DE PAGO','OBSERVACIONES'];
+    const rows=[header];
+    let totD=0,totP=0;
+    marcados.forEach(sv=>{
+      const bal=Math.max(0,getServicioBalance(sv.id));
+      const inp=document.getElementById('op-'+sv.id);
+      const pago=inp?Number(inp.value||0):bal;
+      totD+=bal;totP+=pago;
+      const obs=bal<=0?'PAGADO':'';
+      rows.push([S(sv.alias||sv.inmueble),S(sv.medidor),S(sv.cuenta),S(sv.nombre_recibo),bal,pago,obs]);
+    });
+    rows.push(['','','','totales',totD,totP,'']);
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{wch:24},{wch:12},{wch:18},{wch:22},{wch:10},{wch:14},{wch:14}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Orden de pago');
+    const propObj=propId?getPropietario(propId):null;
+    const nombre=propObj?'_'+(propObj.nombre||'').replace(/\s+/g,'_'):'';
+    XLSX.writeFile(wb,`orden_de_pago${nombre}_${todayISO()}.xlsx`);
+    snack('✓ Orden de pago descargada');
+  }catch(e){console.error(e);snack('Error: '+e.message);}
 }
 
 function guardarCapturaLuz(inm){
@@ -5064,6 +5180,7 @@ function renderRep(){
     <div class="st" style="margin-top:14px">💰 Cuentas y deudas de servicios</div>
     <div class="ro" onclick="importCuentasExcel()"><div style="font-size:26px">📥</div><div><div class="rtit">Importar cuentas desde Excel</div><div class="rdesc">Predial, agua y luz por inmueble · deudas al corte · re-importar actualiza</div></div></div>
     <div class="ro" onclick="exportCuentasExcel()"><div style="font-size:26px">💰</div><div><div class="rtit">Descargar cuentas y deudas (Excel)</div><div class="rdesc">Todas las columnas · deuda actual · hoja global + hoja por inmueble</div></div></div>
+    <div class="ro" onclick="openOrdenPago()"><div style="font-size:26px">🧾</div><div><div class="rtit">Orden de pago (Excel)</div><div class="rdesc">Solo los servicios marcados "me toca pagar" · ajusta montos y exporta</div></div></div>
 
     <div class="st" style="margin-top:14px">📈 Movimientos (Excel)</div>
     <div class="ro" onclick="rangeMode='hoy';exportExcelMovs()"><div style="font-size:22px">📅</div><div><div class="rtit">Movimientos de hoy</div><div class="rdesc">Ingresos y gastos del día</div></div></div>
