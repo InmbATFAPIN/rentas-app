@@ -2005,27 +2005,51 @@ function renderGastos(){
 }
 
 // ── GASTOS FAVORITOS (recurrentes) ──
+let _favModoGestion=false;
 function renderFavoritosBar(){
   const favs=DB.gastos_favoritos||[];
   let chips=favs.map(f=>{
     const cat=CATS_GASTO[f.categoria]||CATS_GASTO.otros;
-    return`<button onclick="usarFavorito('${f.id}')" style="flex-shrink:0;background:var(--s1);border:1px solid #333;border-left:3px solid ${cat.c};border-radius:9px;padding:7px 11px;cursor:pointer;text-align:left;color:var(--txt,#fff)">
-      <div style="font-size:12px;font-weight:700;white-space:nowrap">${cat.i} ${f.nombre}</div>
-      <div style="font-size:9px;color:var(--dim);white-space:nowrap">${fmt(f.monto)}${f.inmueble?' · '+f.inmueble:''}</div>
-    </button>`;
+    // Toque = usar · pulsación larga = editar/borrar. En modo gestión, toque = editar.
+    return`<div style="position:relative;flex-shrink:0">
+      <button
+        onclick="${_favModoGestion?`openFavoritoForm('${f.id}')`:`usarFavorito('${f.id}')`}"
+        ontouchstart="favPressStart('${f.id}')" ontouchend="favPressEnd()" ontouchmove="favPressEnd()"
+        onmousedown="favPressStart('${f.id}')" onmouseup="favPressEnd()" onmouseleave="favPressEnd()"
+        style="background:var(--s1);border:1px solid ${_favModoGestion?'#E05C5C55':'#333'};border-left:3px solid ${cat.c};border-radius:9px;padding:7px 11px;cursor:pointer;text-align:left;color:var(--txt,#fff)">
+        <div style="font-size:12px;font-weight:700;white-space:nowrap">${cat.i} ${f.nombre}${_favModoGestion?' ✏️':''}</div>
+        <div style="font-size:9px;color:var(--dim);white-space:nowrap">${fmt(f.monto)}${f.inmueble?' · '+f.inmueble:''}</div>
+      </button>
+      ${_favModoGestion?`<button onclick="delFavorito('${f.id}')" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#E05C5C;border:none;color:#fff;font-size:12px;line-height:1;cursor:pointer;padding:0">×</button>`:''}
+    </div>`;
   }).join('');
   return`<div style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-size:11px;color:var(--dim);font-weight:600">⭐ Gastos frecuentes</span>
-      <button onclick="openFavoritoForm()" style="background:none;border:none;color:var(--gold);font-size:11px;cursor:pointer;font-weight:600">+ Nuevo</button>
+      <span style="font-size:11px;color:var(--dim);font-weight:600">⭐ Gastos frecuentes${_favModoGestion?' · <span style="color:#E05C5C">gestionar</span>':''}</span>
+      <div style="display:flex;gap:12px">
+        ${favs.length>0?`<button onclick="_favModoGestion=!_favModoGestion;renderCon()" style="background:none;border:none;color:${_favModoGestion?'#E05C5C':'var(--dim)'};font-size:11px;cursor:pointer;font-weight:600">${_favModoGestion?'Listo':'Gestionar'}</button>`:''}
+        <button onclick="openFavoritoForm()" style="background:none;border:none;color:var(--gold);font-size:11px;cursor:pointer;font-weight:600">+ Nuevo</button>
+      </div>
     </div>
     ${favs.length===0
       ? `<div style="font-size:10px;color:var(--dim);padding:8px 10px;background:var(--s1);border-radius:8px;border:1px dashed #333">Crea uno (ej. "Pago Freddy" $350) y luego solo pícalo para cargarlo al instante.</div>`
-      : `<div style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px">${chips}</div>`}
+      : `<div style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;padding-top:6px">${chips}</div>
+         ${_favModoGestion?'':'<div style="font-size:9px;color:var(--dim);margin-top:4px">Mantén presionado un botón para editarlo o borrarlo.</div>'}`}
   </div>`;
+}
+// Pulsación larga sobre un chip → abrir edición (donde vive el botón de borrar)
+let _favPressTimer=null;
+let _favLongFired=false;
+function favPressStart(favId){
+  clearTimeout(_favPressTimer);_favLongFired=false;
+  _favPressTimer=setTimeout(()=>{_favPressTimer=null;_favLongFired=true;openFavoritoForm(favId);},550);
+}
+function favPressEnd(){
+  if(_favPressTimer){clearTimeout(_favPressTimer);_favPressTimer=null;}
 }
 
 function usarFavorito(favId){
+  if(_favLongFired){_favLongFired=false;return;} // el long-press ya abrió edición
   const f=(DB.gastos_favoritos||[]).find(x=>x.id===favId);
   if(!f){snack('Favorito no encontrado');return;}
   // Abrir el form de gasto precargado con los datos del favorito
@@ -3138,16 +3162,18 @@ function openServicioBalance(svcId){
 function openCapturaLuz(inm){
   const norm=t=>t==='cfe'?'luz':t;
   const luces=DB.servicios.filter(s=>s.inmueble===inm&&norm(s.tipo)==='luz')
-    .sort((a,b)=>(a.alias||'').localeCompare(b.alias||'',undefined,{numeric:true}));
-  if(luces.length===0){snack('Este inmueble no tiene medidores de luz');return;}
+    .sort((a,b)=>String(a.cuenta||'zzz').localeCompare(String(b.cuenta||'zzz'),undefined,{numeric:true})||(a.alias||'').localeCompare(b.alias||''));
+  if(luces.length===0){snack('Este inmueble no tiene cuentas de luz');return;}
   const fechaHoy=todayISO();
   let filas=luces.map((sv,i)=>{
     const bal=getServicioBalance(sv.id);
     const inqV=DB.inquilinos.find(t=>t.cuentaLuzId===sv.id);
+    const numServicio=sv.cuenta||'(sin número de servicio)';
+    const subtitulo=[sv.alias,inqV?'👤 '+inqV.nombre.split(' ')[0]:''].filter(Boolean).join(' · ');
     return`<tr style="border-bottom:1px solid #1e1e1e">
       <td style="padding:7px 6px;font-size:11px">
-        <div style="font-weight:600">${sv.alias||('Medidor '+(i+1))}</div>
-        <div style="font-size:9px;color:var(--dim)">${sv.medidor?'med '+sv.medidor:''}${inqV?' · 👤 '+inqV.nombre.split(' ')[0]:''}</div>
+        <div style="font-weight:700;font-family:monospace;color:${sv.cuenta?'var(--txt,#fff)':'var(--r)'}">${numServicio}</div>
+        <div style="font-size:9px;color:var(--dim)">${subtitulo}</div>
       </td>
       <td style="padding:7px 4px;text-align:right;font-size:11px;color:${bal>0?'var(--r)':'var(--dim)'};white-space:nowrap">${fmt(bal)}</td>
       <td style="padding:7px 4px">
@@ -3158,7 +3184,7 @@ function openCapturaLuz(inm){
   }).join('');
   modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
     <div class="mt2">⚡ Captura rápida — ${inm}</div>
-    <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Escribe el monto del nuevo recibo (o deuda) de cada depto. Se registra como recibo y <b>suma</b> a la deuda de esa cuenta. Deja en blanco los que no cambian.</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Escribe el monto del nuevo recibo de cada <b>número de servicio</b>. Se registra como recibo y <b>suma</b> a la deuda de esa cuenta. Deja en blanco los que no cambian.</div>
     <div class="grid2" style="margin-bottom:10px">
       <div class="fg" style="margin:0"><label class="fl">Fecha de los recibos</label><input class="fi" type="date" id="cap-fecha" value="${fechaHoy}"></div>
       <div class="fg" style="margin:0"><label class="fl">Concepto (común)</label><input class="fi" id="cap-concepto" placeholder="Ej: Bim 5 2026"></div>
@@ -3166,7 +3192,7 @@ function openCapturaLuz(inm){
     <div style="overflow-x:auto;border:1px solid #262626;border-radius:9px">
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="background:var(--s2)">
-        <th style="text-align:left;padding:7px 6px;font-size:9px;color:var(--dim);text-transform:uppercase">Depto</th>
+        <th style="text-align:left;padding:7px 6px;font-size:9px;color:var(--dim);text-transform:uppercase">No. servicio</th>
         <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Deuda actual</th>
         <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Nuevo recibo $</th>
       </tr></thead>
