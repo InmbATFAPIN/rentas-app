@@ -242,8 +242,9 @@ textarea.fi{resize:vertical;min-height:60px}
 </div>
 <script>
 // ─── State ─────────────────────────────────────────────
-let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[],cronograma_estado:[],gastos_favoritos:[]};
+let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[],cronograma_estado:[],gastos_favoritos:[],presupuestos:[],tecnicos:[],ordenes_pago:[]};
 let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null,propFilter='todos';
+let gestSub='gastos',incFilter='abiertos';
 const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MF=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const CATS_GASTO={carros:{n:'Carros',i:'🚗',c:'#2F7CC2'},mantenimiento:{n:'Mantenimiento',i:'🔧',c:'#0059A9'},mano_obra:{n:'Mano de obra',i:'👷',c:'#E58A2C'},servicios:{n:'Pago de servicios',i:'💡',c:'#B8860B'},otros:{n:'Otros',i:'📋',c:'#6B7A8D'}};
@@ -254,8 +255,7 @@ const ZONAS_CRONO={
   aragon:{nombre:'Aragón–Estrella',color:'#4472C4',freq:1.0},
   azcapo:{nombre:'Azcapotzalco',color:'#426A54',freq:1.0},
   lindavista:{nombre:'Lindavista',color:'#C9A227',freq:1.0},
-  ecatepec:{nombre:'Zapata (Ecatepec)',color:'#B565A7',freq:0.5},
-  toluca:{nombre:'Toluca',color:'#E67E22',freq:0.0},
+  zapata_toluca:{nombre:'Zapata/Toluca',color:'#B565A7',freq:0.5},
 };
 const TAREAS_CRONO_INM=[
   {id:'cisterna',nombre:'Limpieza cisterna (cloro)',freq:15,icon:'🚰'},
@@ -367,7 +367,7 @@ let cloudUnsubs = [];
 let saveTimers = {};
 let cloudStateNow = 'offline';
 let cloudMsgNow = 'Sin sincronización';
-const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios','cronograma_estado','gastos_favoritos'];
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios','cronograma_estado','gastos_favoritos','presupuestos','tecnicos','ordenes_pago'];
 const PHOTO_COLLS = ['obras','incidentes','inspecciones']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
@@ -634,6 +634,8 @@ function migrateToPropietarios(){
 
   // 0. Normalizar tipo 'cfe' -> 'luz' en servicios existentes
   DB.servicios.forEach(s=>{if(s.tipo==='cfe'){s.tipo='luz';changed=true;}});
+  // 0b. Fusionar zonas viejas (ecatepec/toluca) -> zapata_toluca
+  DB.inmuebles.forEach(im=>{if(im.zona==='ecatepec'||im.zona==='toluca'){im.zona='zapata_toluca';changed=true;}});
 
   // 1. Create propietario entities from EVERY source (inquilinos + inmuebles)
   const nombresSet=new Set();
@@ -1330,16 +1332,23 @@ function delPropietario(id){
 
 
 // ─── CONCILIACIÓN ──────────────────────────────────────
+function setGestSub(s){gestSub=s;renderCon();}
 function renderCon(){
-  // GESTIÓN — acciones rápidas + cronograma + conciliación
+  const sub=gestSub;
+  const tab=(k,lbl)=>`<button class="${sub===k?'on':''}" onclick="setGestSub('${k}')">${lbl}</button>`;
+  document.getElementById("v-con").innerHTML=`<div class="subnav">${tab('incidentes','🚨 Incidentes')}${tab('gastos','💸 Gastos')}${tab('pm','🏷️ PM')}</div><div id="gest-body"></div>`;
+  if(sub==='incidentes')renderSubIncidentes();
+  else if(sub==='pm')renderSubPM();
+  else renderSubGastos();
+}
 
-  // ── Conciliación: rango + filtro propietario ──
+// ═══════════ SUBSECCIÓN: GASTOS (dinero) ═══════════
+function renderSubGastos(){
   const r=getRange(rangeMode);
   const propSel=propFilter!=='todos'?getPropietarioByName(propFilter):null;
   const inRango=(fecha)=>{if(!fecha)return false;const d=new Date(fecha);if(isNaN(d))return false;return d>=r.ini&&d<=r.fin;};
   const matchProp=(item)=>!propSel||item.propietarioId===propSel.id;
   const matchPropPago=(p)=>{if(!propSel)return true;const t=DB.inquilinos.find(i=>i.id===p.iid);return t&&t.propietarioId===propSel.id;};
-
   const pagosR=DB.pagos.filter(p=>p.pagado&&inRango(p.fecha_pago)&&matchPropPago(p));
   const otrosR=DB.otros_ingresos.filter(o=>inRango(o.fecha)&&matchProp(o));
   const gastosR=DB.gastos.filter(g=>inRango(g.fecha)&&matchProp(g));
@@ -1348,8 +1357,6 @@ function renderCon(){
   const totalIng=totalPagos+totalOtros;
   const totalGas=gastosR.reduce((s,g)=>s+Number(g.monto||0),0);
   const neto=totalIng-totalGas;
-
-  // Movimientos combinados ordenados desc
   const movs=[];
   pagosR.forEach(p=>movs.push({tipo:'pago',fecha:new Date(p.fecha_pago),item:p}));
   otrosR.forEach(o=>movs.push({tipo:'otro',fecha:new Date(o.fecha),item:o}));
@@ -1366,22 +1373,13 @@ function renderCon(){
       </button>
     </div>
     ${renderFavoritosBar()}
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
-      <button class="btn bo" onclick="openObraForm()" style="padding:10px 4px;font-size:11px">🔨 Obra</button>
-      <button class="btn bo" onclick="openIncidenteForm()" style="padding:10px 4px;font-size:11px">🚨 Incidente</button>
-      <button class="btn bo" onclick="openInspeccionForm()" style="padding:10px 4px;font-size:11px">🏠 Inspección</button>
+    <div class="st">📑 Reporte al dueño</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <button class="btn bo" onclick="openPresupuestoSelector()" style="padding:11px 6px;font-size:11px">📋 Presupuesto</button>
+      <button class="btn bo" onclick="openListaInqPDFSelector()" style="padding:11px 6px;font-size:11px">📑 Lista inquilinaria</button>
+      <button class="btn bo" onclick="openOrdenPago()" style="padding:11px 6px;font-size:11px">🧾 Órdenes de pago</button>
+      <button class="btn bo" onclick="openPPTGenerator()" style="padding:11px 6px;font-size:11px">📊 Reporte semanal</button>
     </div>
-    <button class="btn bo bfu" onclick="openFichasMatrix()" style="margin-bottom:14px;text-align:left;padding:12px 14px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="font-size:22px">🔧</div>
-        <div style="flex:1"><div style="font-weight:700;font-size:13px">Matrix de soluciones</div>
-        <div style="font-size:10px;color:var(--dim);margin-top:2px">Procedimientos de mantenimiento estándar para incidentes comunes</div></div>
-      </div>
-    </button>
-
-    <div class="st">🗓️ Cronograma operativo</div>
-    <div id="crono-body" style="margin-bottom:16px"></div>
-
     <div class="st">⚖️ Conciliación</div>
     <div class="cr" style="margin-bottom:8px">
       <span class="chip${rangeMode==='hoy'?' on':''}" onclick="rangeMode='hoy';renderCon()">Hoy</span>
@@ -1406,7 +1404,6 @@ function renderCon(){
       <button class="btn bo" onclick="exportExcelMovs()">📊 Excel</button>
     </div>
     <div class="st-sm">Movimientos (${movs.length})</div>`;
-
   if(movs.length===0){
     html+=`<div class="es"><div class="ei">📭</div><div class="et">Sin movimientos en ${r.label.toLowerCase()}</div></div>`;
   }else{
@@ -1435,10 +1432,122 @@ function renderCon(){
     });
     if(movs.length>80)html+=`<div style="text-align:center;padding:10px;color:var(--dim);font-size:11px">+ ${movs.length-80} más (usa Excel para ver todo)</div>`;
   }
+  document.getElementById("gest-body").innerHTML=html;
+}
 
-  document.getElementById("v-con").innerHTML=html;
+// ═══════════ SUBSECCIÓN: INCIDENTES (mantenimiento) ═══════════
+function renderSubIncidentes(){
+  let incs=DB.incidentes.slice();
+  if(incFilter==='abiertos')incs=incs.filter(i=>!i.resuelto);
+  else if(incFilter==='resueltos')incs=incs.filter(i=>i.resuelto);
+  incs.sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+  const nAb=DB.incidentes.filter(i=>!i.resuelto).length;
+  let html=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
+      <button class="btn bo" onclick="openIncidenteForm()" style="padding:11px 4px;font-size:11px">🚨 Incidente</button>
+      <button class="btn bo" onclick="openObraForm()" style="padding:11px 4px;font-size:11px">🔨 Obra</button>
+      <button class="btn bo" onclick="openInspeccionForm()" style="padding:11px 4px;font-size:11px">🏠 Inspección</button>
+    </div>
+    <button class="btn bo bfu" onclick="openFichasMatrix()" style="margin-bottom:14px;text-align:left;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:10px"><div style="font-size:22px">🔧</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:13px">Matrix de soluciones</div>
+      <div style="font-size:10px;color:var(--dim);margin-top:2px">20 procedimientos de mantenimiento con criterios de aceptación</div></div></div>
+    </button>
+    <button class="btn bo bfu" onclick="openTecnicos()" style="margin-bottom:14px;text-align:left;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:10px"><div style="font-size:22px">🧑‍🔧</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:13px">Técnicos de confianza</div>
+      <div style="font-size:10px;color:var(--dim);margin-top:2px">Catálogo por especialidad y zona para agendar órdenes de trabajo</div></div></div>
+    </button>
+    <div class="st">🚨 Reportes de incidentes</div>
+    <div class="cr" style="margin-bottom:10px">
+      <span class="chip${incFilter==='abiertos'?' on':''}" onclick="incFilter='abiertos';renderCon()">Abiertos (${nAb})</span>
+      <span class="chip${incFilter==='resueltos'?' on':''}" onclick="incFilter='resueltos';renderCon()">Resueltos</span>
+      <span class="chip${incFilter==='todos'?' on':''}" onclick="incFilter='todos';renderCon()">Todos</span>
+    </div>`;
+  if(incs.length===0){
+    html+=`<div class="es"><div class="ei">✅</div><div class="et">Sin incidentes ${incFilter==='abiertos'?'abiertos':''}</div></div>`;
+  }else{
+    incs.forEach(i=>{
+      const n=NIVELES_INC.find(x=>x.k===i.nivel)||NIVELES_INC[0];
+      const fStr=i.fecha?new Date(i.fecha).toLocaleDateString('es-MX',{day:'2-digit',month:'short'}):'';
+      html+=`<div style="background:var(--s1);border:1px solid #E4E9EF;border-left:3px solid ${n.c};border-radius:9px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0;cursor:pointer" onclick="openIncidenteDetail('${i.id}')">
+          <div style="font-size:12.5px;font-weight:600">${i.numero||'s/folio'} ${i.resuelto?'<span style="font-size:9px;color:var(--g)">✓ resuelto</span>':''}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${fStr} · ${i.lugar||'—'} · ${(i.descripcion||'').slice(0,40)}</div>
+        </div>
+        <span class="bge" style="background:${n.c}22;color:${n.c};border:1px solid ${n.c}44;flex-shrink:0">${n.n}</span>
+        <button class="btn bd bsm" onclick="delIncidente('${i.id}')" style="padding:5px 8px;flex-shrink:0">🗑️</button>
+      </div>`;
+    });
+  }
+  document.getElementById("gest-body").innerHTML=html;
+}
+
+// ═══════════ SUBSECCIÓN: PM (operación de campo + decisiones) ═══════════
+function renderSubPM(){
+  let html=renderCobranzaSemaforo();
+  html+=`<div class="st" style="margin-top:4px">🗓️ Cronograma operativo</div>
+    <div id="crono-body" style="margin-bottom:16px"></div>
+    <div class="st">🧭 Decisiones</div>
+    <button class="btn bo bfu" onclick="openCorridaSelector()" style="text-align:left;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:10px"><div style="font-size:22px">💹</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:13px">Corrida financiera</div>
+      <div style="font-size:10px;color:var(--dim);margin-top:2px">Rentabilidad y valuación por inmueble</div></div></div>
+    </button>
+    <div style="font-size:10px;color:var(--dim);text-align:center;margin-top:8px">ROI de reparaciones y fichas de inmueble — próximamente</div>`;
+  document.getElementById("gest-body").innerHTML=html;
   renderCrono();
 }
+
+// Semáforo de cobranza: a qué zona conviene ir hoy (sin mapa)
+function renderCobranzaSemaforo(){
+  const zonas={};
+  Object.keys(ZONAS_CRONO).forEach(z=>zonas[z]={n:0,monto:0,maxDias:0,inq:[]});
+  const sinZona={n:0,monto:0,maxDias:0,inq:[]};
+  DB.inquilinos.filter(t=>t.estado==='activo'&&Number(t.renta||0)>0).forEach(t=>{
+    if(!isLate(t.id,HM,HA))return;
+    const inm=DB.inmuebles.find(x=>x.id===t.inmuebleId||x.nombre===t.inmueble);
+    const z=inm&&inm.zona&&ZONAS_CRONO[inm.zona]?inm.zona:null;
+    const dias=diasVencido(t.id,HM,HA);
+    const rec={nombre:t.nombre,inmueble:t.inmueble,dias,monto:Number(t.renta||0)};
+    const bucket=z?zonas[z]:sinZona;
+    bucket.n++;bucket.monto+=rec.monto;bucket.maxDias=Math.max(bucket.maxDias,dias);bucket.inq.push(rec);
+  });
+  // Ordenar zonas por urgencia (conviene ir): score = n + maxDias
+  const lista=Object.keys(zonas).map(z=>({z,...zonas[z]})).filter(x=>x.n>0)
+    .sort((a,b)=>(b.n+b.maxDias)-(a.n+a.maxDias));
+  const totalVenc=lista.reduce((s,x)=>s+x.n,0)+sinZona.n;
+  let html=`<div class="st">🚗 Cobranza — ¿a qué zona voy hoy?</div>`;
+  if(totalVenc===0){
+    html+=`<div class="es"><div class="ei">🎉</div><div class="et">Nadie debe renta ahora mismo</div></div>`;
+    return html;
+  }
+  lista.forEach(x=>{
+    const zinfo=ZONAS_CRONO[x.z];
+    const irHoy=x.n>=3||x.maxDias>=2;
+    const col=irHoy?'#426A54':'#B8860B';
+    const etiqueta=irHoy?'VE HOY':'PUEDE ESPERAR';
+    x.inq.sort((a,b)=>b.dias-a.dias);
+    const key='cob_'+x.z;
+    const open=expandedInm[key]===true;
+    html+=`<div style="background:var(--s1);border:1px solid #E4E9EF;border-left:4px solid ${zinfo.color};border-radius:11px;margin-bottom:8px;overflow:hidden">
+      <div onclick="expandedInm['${key}']=${open?'false':'true'};renderCon()" style="padding:11px 13px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700">${zinfo.nombre} <span class="inm-arrow ${open?'open':''}" style="font-size:10px">▶</span></div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${x.n} inquilino(s) · hasta ${x.maxDias} día(s) de atraso · ${fmt(x.monto)}</div>
+        </div>
+        <span class="bge" style="background:${col}22;color:${col};border:1px solid ${col}55;font-weight:700;flex-shrink:0">${etiqueta}</span>
+      </div>
+      ${open?`<div style="padding:0 13px 10px">${x.inq.map(q=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #EAEEF2;font-size:12px">
+        <span style="flex:1;min-width:0">${q.nombre} <span style="color:var(--dim)">· ${q.inmueble||''}</span></span>
+        <span style="flex-shrink:0;color:${q.dias>=2?'#426A54':'#B8860B'};font-weight:600">${q.dias}d · ${fmt(q.monto)}</span></div>`).join('')}</div>`:''}
+    </div>`;
+  });
+  if(sinZona.n>0){
+    html+=`<div style="background:#FFF7E6;border:1px solid #F0D9A0;border-radius:9px;padding:9px 12px;margin-bottom:8px;font-size:11px;color:#8a6d1f">⚠️ ${sinZona.n} inquilino(s) vencidos sin zona asignada (${fmt(sinZona.monto)}). Asígnales zona en la ficha del inmueble.</div>`;
+  }
+  return html+`<div style="height:8px"></div>`;
+}
+
 
 // ── Lista Inquilinaria ────────────
 function renderListaInq(){
@@ -2149,6 +2258,11 @@ function openAddGasto(id,prefill){
     </div>
 
     <div class="fg">
+      <label class="fl">Subcategoría (opcional · para presupuesto)</label>
+      <select class="fi" id="g-subcat">${renderSubcatOptions(currentCat,g.subcat||'')}</select>
+    </div>
+
+    <div class="fg">
       <label class="fl">2. Propietario *</label>
       <div class="chip-grid" id="prop-chips-g">
         ${DB.propietarios.map(p=>`<div class="cat-chip${currentPropId===p.id?' on':''}" data-prop="${p.id}" onclick="selectPropGasto('${p.id}')" style="${currentPropId===p.id?'border-color:var(--gold);background:var(--gdim)':''}">👤 ${p.nombre}</div>`).join('')}
@@ -2230,7 +2344,7 @@ function saveGasto(id){
   const now=new Date();
   const fechaLocal=new Date(yy,mm-1,dd,now.getHours(),now.getMinutes(),now.getSeconds());
   const obj={
-    categoria:cat,monto:Number(monto),descripcion:desc,
+    categoria:cat,subcat:(document.getElementById('g-subcat')?.value||''),monto:Number(monto),descripcion:desc,
     fecha:fechaLocal.toISOString(),
     propietarioId:propId,inmueble:inm,
     notas:document.getElementById('g-notas').value.trim()
@@ -3282,7 +3396,8 @@ function openOrdenPago(propId){
       <span id="op-tot-lbl">Totales</span>
       <span><span style="color:var(--dim)">deuda </span><span id="op-tot-deuda">—</span> · <span style="color:var(--gold)">pago </span><span id="op-tot-pago" style="color:var(--gold)">—</span></span>
     </div>
-    <button class="btn bg bfu" onclick="exportOrdenPagoExcel('${propId||''}')">📊 Descargar Excel</button>
+    <div style="display:flex;gap:8px"><button class="btn bg" style="flex:1" onclick="exportOrdenPagoExcel('${propId||''}')">📊 Excel</button>
+    <button class="btn bo" style="flex:1" onclick="exportOrdenPagoPDF('${propId||''}')">📄 PDF</button></div>
     <button class="btn bo bfu" style="margin-top:8px" onclick="closeM()">Cerrar</button>
     <div style="height:14px"></div></div>`);
   ordenPagoTotales();
@@ -4004,7 +4119,13 @@ const FICHAS_MANT = [
     {f:"Barrer y trapear",pasos:["Barrer del fondo hacia la salida. Recoger con recogedor.","Cubo con agua tibia + desinfectante. Trapear en franjas paralelas hacia atrás.","Segunda pasada con agua limpia si queda residuo de jabón."]},
     {f:"Ventilar y aromatizar",pasos:["Abrir ventanas mínimo 10 minutos.","Aplicar aromatizante al salir. Revisar que no quede nada olvidado."]}
   ],
-  crit:["No hay polvo visible en cornisas, marcos ni superficies.","El piso no queda pegajoso ni con marcas de trapeador.","Sin malos olores; el espacio huele limpio."]
+  crit:["No hay polvo visible en cornisas, marcos ni superficies.","El piso no queda pegajoso ni con marcas de trapeador.","Sin malos olores; el espacio huele limpio."],
+  eval:[
+    ['Prueba del dedo blanco','Pasar el dedo por marcos superiores de puerta, cornisas y detrás de la puerta. Si sale gris, no se sacudieron las alturas.'],
+    ['Piso — resbalón test','Caminar sobre el piso ya seco. Si se pega la suela o resbala, quedó residuo de jabón.'],
+    ['Olor a los 30 min','Al entrar 30 min después, debe oler neutro o levemente a aromatizante.'],
+    ['Detrás de muebles ligeros','Mover una silla. Si hay polvo debajo, no barrieron a fondo.']
+  ]
 },
 { n:2, cat:"MURO", titulo:"Resanar grietas y fisuras", diag:"resanar",
   kw:"resanar grieta fisura hueco pasta lijar muro pared",
@@ -4014,12 +4135,19 @@ const FICHAS_MANT = [
   herr:["Espátula flexible 10 cm","Espátula rígida 5 cm","Taco de lijar","Brocha 2\"","Cubeta pequeña"],
   epp:["Guantes de nitrilo","Lentes de seguridad","Cubrebocas al lijar"],
   fases:[
+    {f:"Protección del área — ANTES DE TOCAR EL MURO",pasos:["Sacar del cuarto todo lo que se pueda mover: cuadros, cortinas, muebles pequeños, tapetes.","Los muebles grandes que no se pueden mover: separarlos del muro al menos 1 metro y cubrirlos COMPLETAMENTE con plástico o sábanas viejas.","Cubrir el piso debajo y a 1 metro del muro con plástico protector o cartón. Sujetarlo con masking tape a los zoclos para que no se mueva mientras trabajan.","Cubrir contactos, apagadores y salidas de aire con masking tape.","Si hay puertas cercanas: cerrarlas para que el polvo del lijado no se pase a otros cuartos."]},
     {f:"Inspección y preparación",pasos:["Revisar todas las grietas. Marcar con lápiz. Separar superficiales de profundas.","Raspar el borde suelto de cada grieta con la espátula rígida hasta que quede firme.","Grietas largas: pegar cinta de malla autoadherente antes de aplicar pasta.","Limpiar con trapo húmedo. Esperar a que seque."],diag:"resanar"},
     {f:"Aplicar pasta",pasos:["Aplicar pasta acrílica en la grieta con movimiento diagonal.","Rellenar huecos grandes con yeso primero; secar y aplicar pasta encima.","Emparejar pasando la espátula en sentido contrario para quitar exceso.","Dejar secar mínimo 2 h (o hasta que no esté fría al tacto)."]},
     {f:"Lijar y afinar",pasos:["Lijar con grano 120 hasta quedar al ras del muro. Sin hundir.","Segunda pasada con grano 220. Limpiar el polvo con trapo húmedo.","Si quedó hundido, aplicar segunda capa delgada y repetir."]},
     {f:"Sellador (si se va a pintar)",pasos:["Aplicar sellador con brocha sobre el resane. Secar 1 h.","Verificar que el resane no se vea ni se sienta al pasar la mano."]}
   ],
-  crit:["La superficie resanada no se distingue al tacto del muro.","Sin grietas visibles ni burbujas en la pasta.","Área limpia y sin polvo, lista para pintar."]
+  crit:["La superficie resanada no se distingue al tacto del muro.","Sin grietas visibles ni burbujas en la pasta.","Área limpia y sin polvo, lista para pintar."],
+  eval:[
+    ['Test del tacto a ojos cerrados','Pasar la mano por el resane. No debe sentirse ni hundido ni levantado.'],
+    ['Luz rasante','Alumbrar con lámpara paralela al muro. Si se ven sombras, quedó irregular.'],
+    ['Sin polvo residual','Pasar franela negra. Si sale blanca, no limpiaron antes de sellador.'],
+    ['Área protegida al inicio','Fotos del antes: debe verse plástico en piso y muebles cubiertos.']
+  ]
 },
 { n:3, cat:"LIMP", titulo:"Limpiar cocina (tarja y brillo)",
   kw:"cocina tarja estufa campana grasa desengrasante brillo acero azulejo",
@@ -4029,12 +4157,18 @@ const FICHAS_MANT = [
   herr:["Cubeta","Cepillo de cerdas medias","Esponjas","Rasqueta de plástico"],
   epp:["Guantes de látex gruesos","Ventilación abierta con desengrasante"],
   fases:[
-    {f:"Preparar",pasos:["Retirar todo de la estufa y la tarja. Vaciar la basura.","Aplicar desengrasante en quemadores, parrillas, campana y tarja. Dejar actuar 5–10 min."]},
+    {f:"Protección y preparación del área",pasos:["Abrir ventanas o encender el extractor ANTES de usar desengrasante — sus vapores son fuertes.","Sacar toda la comida y trastes de las mesetas cercanas. Guardarlos en otro cuarto o en bolsas cerradas para que no absorban olor.","Cubrir con periódico o bolsa negra los electrodomésticos pequeños que se queden cerca (licuadora, tostador, cafetera) — el desengrasante los mancha.","Poner cartón o periódico en el piso frente a la estufa y bajo la tarja para atrapar chorreaduras.","Retirar todo de la estufa y la tarja (trastes, jabón, esponjas). Vaciar la basura.","Ponerse EPP completo antes de abrir el desengrasante: guantes gruesos, lentes, cubrebocas.","Aplicar desengrasante en quemadores, parrillas, campana y tarja. Dejar actuar 5–10 min."]},
     {f:"Estufa y quemadores",pasos:["Tallar parrillas con fibra de acero + desengrasante. Enjuagar con agua caliente.","Limpiar la superficie con fibra suave para no rayar el esmalte.","Limpiar interior y exterior de la campana."]},
     {f:"Tarja y brillo",pasos:["Tallar con cepillo siguiendo el veteado del acero (misma dirección, nunca circular).","Enjuagar completamente y secar con franela.","Aplicar brillo para acero con microfibra en el sentido del veteado.","Limpiar la mezcladora y secar para evitar manchas de agua."]},
     {f:"Azulejos y suelo",pasos:["Limpiar azulejos con multiusos + fibra suave. Secar con franela.","Limpiar alacenas por dentro y por fuera.","Barrer y trapear con desengrasante diluido. Segunda pasada con agua limpia."]}
   ],
-  crit:["Parrillas y estufa sin grasa visible.","Tarja brillante, sin manchas de agua.","Azulejos sin huellas de grasa ni jabón.","Piso sin grasa ni resbaloso."]
+  crit:["Parrillas y estufa sin grasa visible.","Tarja brillante, sin manchas de agua.","Azulejos sin huellas de grasa ni jabón.","Piso sin grasa ni resbaloso."],
+  eval:[
+    ['Servilleta blanca','Pasar por campana, atrás de estufa y bajo alacenas. Sale amarilla = no se desengrasó.'],
+    ['Brillo de tarja','Sin manchas de agua ni residuo blanco. Rayas circulares = tallaron mal.'],
+    ['Junta azulejo-meseta','De cerca: sin negro. Si sigue negra, superficial.'],
+    ['Piso con calcetín blanco','Gris o pegajoso = quedó grasa.']
+  ]
 },
 { n:4, cat:"MURO", titulo:"Pintar una pared", diag:"pintura",
   kw:"pintar pared pintura descarapelar clavos rodillo brocha sellador vinilica",
@@ -4044,13 +4178,20 @@ const FICHAS_MANT = [
   herr:["Escalera tijera 2 m","Espátula rígida","Espátula flexible","Alicates / sacaclavos","Taco de lijar","Cubeta"],
   epp:["Guantes de nitrilo","Lentes de seguridad","Cubrebocas N95 (sellador)","Ropa de trabajo"],
   fases:[
-    {f:"Descarapelar y quitar clavos",pasos:["Proteger piso y muebles con plástico. Masking tape en zoclos y marcos.","Quitar todos los clavos con alicates. Emparejar el hoyo con pasta.","Raspar con espátula rígida toda la pintura suelta, burbujas o cascarilla."]},
+    {f:"Protección del área — ANTES DE EMPEZAR",pasos:["Sacar del cuarto todo lo que se pueda mover: cuadros, cortinas, tapetes, muebles chicos.","Los muebles grandes que se quedan: separarlos 1 m del muro y cubrirlos COMPLETAMENTE con plástico o sábanas viejas (no dejar patas, esquinas ni respaldos descubiertos).","Cubrir todo el piso del cuarto con plástico protector. Sujetarlo con masking tape a los zoclos.","Masking tape en zoclos, marcos de puertas y ventanas, contactos, apagadores y salidas de aire.","Retirar apagadores y contactos si se puede (con corriente cortada) — se pinta mejor y no quedan bordes marcados.","Cerrar puertas de otros cuartos para que el polvo del lijado no viaje."]},
+    {f:"Descarapelar y quitar clavos",pasos:["Verificar que todo esté protegido antes de raspar (el polvo cae hacia todos lados).","Quitar todos los clavos con alicates. Emparejar el hoyo con pasta.","Raspar con espátula rígida toda la pintura suelta, burbujas o cascarilla. Recoger los pedazos que caigan al plástico."]},
     {f:"Resanar",pasos:["Aplicar pasta en hoyos, grietas y zonas raspadas. Secar 2 h.","Lijar con grano 120 hasta nivelar. Limpiar polvo.","Ver procedimiento 02 para resanes más complejos."]},
     {f:"Sellador",pasos:["Aplicar sellador con rodillo en toda la superficie. Bordes con brocha.","Dejar secar mínimo 4 h."]},
     {f:"Primera y segunda mano",pasos:["1ª mano: aplicar con rodillo en FRANJAS VERTICALES de arriba hacia abajo.","Cubrir bordes con brocha antes del rodillo. Secar 4 h.","Lijar suave con grano 220 si hay rebabas. Limpiar polvo.","2ª mano: aplicar en FRANJAS HORIZONTALES (perpendicular a la primera).","Retirar masking tape a 45° con la pintura ligeramente húmeda."],diag:"pintura"},
     {f:"Limpieza",pasos:["Lavar rodillos y brochas con agua de inmediato.","Retirar plásticos. Limpiar salpicaduras con trapo húmedo antes de que sequen.","Guardar cubetas selladas para retoques."]}
   ],
-  crit:["Cobertura uniforme: sin rayas, manchas ni zonas sin cubrir.","Bordes limpios junto a zoclos y marcos.","Acabado mate y uniforme en toda la superficie."]
+  crit:["Cobertura uniforme: sin rayas, manchas ni zonas sin cubrir.","Bordes limpios junto a zoclos y marcos.","Acabado mate y uniforme en toda la superficie."],
+  eval:[
+    ['Cobertura a contraluz','Luz lateral: sin color anterior ni marcas de rodillo.'],
+    ['Bordes con zoclo y marco','Sin escurrimientos ni color viejo asomándose.'],
+    ['Test del clavito','Resanes sin notarse una vez pintado.'],
+    ['Fotos piso/muebles','Sin salpicaduras.']
+  ]
 },
 { n:5, cat:"ELEC", titulo:"Colocar un foco", diag:"foco",
   kw:"foco led socket bombilla lampara luz cambiar",
@@ -4065,7 +4206,12 @@ const FICHAS_MANT = [
     {f:"Instalar el nuevo",pasos:["Verificar que tenga la misma base.","Insertar y girar en sentido horario hasta que quede firme.","No apretar de más: firme pero sin forzar."]},
     {f:"Probar",pasos:["Encender el switch: debe encender de inmediato.","Si no enciende, revisar el roscado y el switch.","Si hay chispa u olor: apagar y reportar."]}
   ],
-  crit:["El foco enciende al activar el switch.","Sin parpadeo ni olor a quemado.","El foco queda firme, no suelto ni inclinado."]
+  crit:["El foco enciende al activar el switch.","Sin parpadeo ni olor a quemado.","El foco queda firme, no suelto ni inclinado."],
+  eval:[
+    ['Enciende al primer intento','Sin parpadeo.'],
+    ['Firmeza','Ni flojo ni sobreapretado.'],
+    ['Sin olor a quemado','2 min encendido: sin olor ni calentamiento anormal del socket.']
+  ]
 },
 { n:6, cat:"ELEC", titulo:"Cambiar un contacto eléctrico", diag:"contacto",
   kw:"contacto tomacorriente enchufe fase neutro tierra breaker corriente electrico",
@@ -4080,7 +4226,13 @@ const FICHAS_MANT = [
     {f:"Conectar el nuevo",pasos:["FASE al borne L (lado de tornillos oscuros).","NEUTRO al borne N (lado plateado/blanco).","TIERRA al borne verde o polo redondo.","Que ningún cable pelado quede expuesto; envolver con cinta si sobra."]},
     {f:"Montar y probar",pasos:["Doblar los cables hacia adentro, empujar el contacto a la caja y atornillar.","Colocar la tapa.","Encender el breaker y probar con un cargador o lámpara."]}
   ],
-  crit:["El contacto funciona en los dos polos.","Sin cables expuestos ni cinta visible desde afuera.","La tapa queda firme y a nivel con la pared."]
+  crit:["El contacto funciona en los dos polos.","Sin cables expuestos ni cinta visible desde afuera.","La tapa queda firme y a nivel con la pared."],
+  eval:[
+    ['Probador de contacto','110-127V estable en ambos polos.'],
+    ['Carga real','Cargador y lámpara: ambos funcionan.'],
+    ['Tapa a nivel','Al ras del muro, tornillos rectos.'],
+    ['Sin chispa','Conectar-desconectar 3 veces: sin chispa ni crujido.']
+  ]
 },
 { n:7, cat:"PLOM", titulo:"Cambiar mezcladora de lavabo", diag:"mezcladora",
   kw:"mezcladora llave lavabo grifo fria caliente flexible llave de paso fuga",
@@ -4095,7 +4247,13 @@ const FICHAS_MANT = [
     {f:"Instalar la nueva",pasos:["Teflón en la rosca de las conexiones si los empaques no son de goma.","Insertar la mezcladora, colocar empaque y tuerca de sujeción.","Apretar desde abajo a mano + 1/4 de vuelta. No excederse.","Conectar flexibles: fría a la izquierda, caliente a la derecha. A mano + 1/4 vuelta."]},
     {f:"Probar fugas",pasos:["Abrir lentamente las llaves de paso. Revisar cada conexión buscando goteo.","Abrir la mezcladora: debe salir fría y caliente.","Si hay fuga, apretar un poco más; si persiste, revisar el teflón."]}
   ],
-  crit:["Sin fugas en las 4 conexiones.","Mezcladora firme, centrada y a nivel.","Funciona fría, caliente y mixta."]
+  crit:["Sin fugas en las 4 conexiones.","Mezcladora firme, centrada y a nivel.","Funciona fría, caliente y mixta."],
+  eval:[
+    ['Fuga 24 h','Papel seco en las 4 conexiones al día siguiente. Cualquier humedad = fuga lenta.'],
+    ['Firmeza','Sin girar en su base ni juego.'],
+    ['Fría-caliente correcto','Izquierdo fría, derecho caliente.'],
+    ['Presión pareja','Igual en fría y caliente.']
+  ]
 },
 { n:8, cat:"PLOM", titulo:"Colocar sapo (flapper) de WC", diag:"sapo",
   kw:"sapo flapper wc inodoro tanque agua corriendo goteo palanca cadena",
@@ -4110,7 +4268,13 @@ const FICHAS_MANT = [
     {f:"Instalar el nuevo",pasos:["Enganchar el sapo en las pestañas (clic en ambos lados).","Conectar la cadena con 1–2 cm de holgura (ni tensa ni suelta).","Verificar que quede centrado sobre la abertura."]},
     {f:"Probar",pasos:["Abrir la llave de paso y dejar llenar el tanque.","Jalar la palanca: descarga completa y el sapo debe volver a sellar.","Esperar 5 min; si se oye agua corriendo, revisar el centrado."]}
   ],
-  crit:["No se oye agua corriendo con el tanque lleno.","La palanca descarga completamente.","El agua llena al nivel correcto marcado en el tanque."]
+  crit:["No se oye agua corriendo con el tanque lleno.","La palanca descarga completamente.","El agua llena al nivel correcto marcado en el tanque."],
+  eval:[
+    ['Silencio 10 min','Tanque lleno, sin oírse agua corriendo.'],
+    ['Descarga completa','Se vacía de golpe.'],
+    ['Nivel de agua','Hasta la línea del tanque.'],
+    ['Colorante','Gotas de colorante, 20 min sin jalar. Si aparece en la tasa, no sella.']
+  ]
 },
 { n:9, cat:"LIMP", titulo:"Limpiar un patio",
   kw:"patio enjabonar tallar jalador trapear aroma cemento loseta cepillo",
@@ -4126,7 +4290,13 @@ const FICHAS_MANT = [
     {f:"Jalador de agua",pasos:["Empujar el agua sucia hacia el desagüe o la salida.","Pasadas rectas, sin dejar charcos.","Si hay pendiente, jalar en su sentido."]},
     {f:"Trapeado con aroma",pasos:["Cubeta con agua limpia + 2 tapones de aromatizante.","Trapear quitando el residuo de jabón.","Secar al natural o dar una pasada más con el jalador."]}
   ],
-  crit:["Sin mugre visible en la superficie ni en las juntas.","Sin residuo de jabón (no resbala).","El patio huele limpio y fresco."]
+  crit:["Sin mugre visible en la superficie ni en las juntas.","Sin residuo de jabón (no resbala).","El patio huele limpio y fresco."],
+  eval:[
+    ['Juntas entre losetas','Color original, no negras.'],
+    ['Sin residuo jabón','Suela de goma no resbala ni pega.'],
+    ['Esquinas','Sin mugre en orillas donde no llega el jalador.'],
+    ['Sin charcos','Agua fluye a coladera.']
+  ]
 },
 { n:10, cat:"LIMP", titulo:"Limpieza de ventanas",
   kw:"ventana vidrio cristal limpiavidrios marco periodico microfibra rasqueta",
@@ -4141,7 +4311,13 @@ const FICHAS_MANT = [
     {f:"Limpiavidrios y frotar",pasos:["Aplicar limpiavidrios en zigzag cubriendo toda la superficie.","Frotar con papel periódico en círculos hasta que el vidrio chirríe."]},
     {f:"Brillo final",pasos:["Pasar microfibra seca en vertical para eliminar cualquier rastro.","Revisar de lado; si hay manchas, repetir localmente."]}
   ],
-  crit:["Vidrio sin manchas ni rayas desde ambos lados.","Marcos limpios y sin residuo de limpiavidrios.","Sin telarañas en las esquinas."]
+  crit:["Vidrio sin manchas ni rayas desde ambos lados.","Marcos limpios y sin residuo de limpiavidrios.","Sin telarañas en las esquinas."],
+  eval:[
+    ['Contraluz','Sin marcas circulares ni rayones.'],
+    ['Marcos primero','Aluminio sin tierra en esquinas.'],
+    ['Rieles','Dedo por el riel: sale limpio.'],
+    ['Sin hilitos','Sin pelusa a contraluz.']
+  ]
 },
 { n:11, cat:"PLOM", titulo:"Destapar desagüe (émbolo)", diag:"desague",
   kw:"destapar desague drenaje tapado embolo desatascador sifon fregadero lavabo agua caliente",
@@ -4156,7 +4332,12 @@ const FICHAS_MANT = [
     {f:"Desmontar el sifón",pasos:["Colocar cubeta debajo para el agua.","Aflojar las tuercas del sifón a mano.","Retirar y limpiar el interior con cepillo; revisar objetos extraños.","Rearmar apretando a mano + 1/4 de vuelta."]},
     {f:"Químico (último recurso)",pasos:["Aplicar según instrucciones del fabricante.","Esperar el tiempo indicado. NO MEZCLAR CON CLORO.","Enjuagar con abundante agua caliente."]}
   ],
-  crit:["El agua drena por completo sin charco.","Sin fugas en el sifón tras rearmarlo.","Drenado normal (< 10 s en un lavabo estándar)."]
+  crit:["El agua drena por completo sin charco.","Sin fugas en el sifón tras rearmarlo.","Drenado normal (< 10 s en un lavabo estándar)."],
+  eval:[
+    ['Drenado <10 s','Lavabo a la mitad drena completo.'],
+    ['Sin fugas sifón','Papel seco 15 min: seguir seco.'],
+    ['Sin olor','Sin subir olor a drenaje.']
+  ]
 },
 { n:12, cat:"PLOM", titulo:"Cambiar cabezal de regadera", diag:"cabezal",
   kw:"cabezal regadera ducha teflon rosca brazo cambiar chorro",
@@ -4170,7 +4351,12 @@ const FICHAS_MANT = [
     {f:"Teflón y colocar el nuevo",pasos:["Envolver la rosca del brazo con teflón: 3–5 vueltas en sentido HORARIO.","Roscar el cabezal a mano, en sentido horario, hasta que quede firme.","Con trapo de por medio, apretar 1/4 de vuelta con la llave. No excederse."],diag:"cabezal"},
     {f:"Probar",pasos:["Abrir el agua lentamente y revisar fugas en la unión brazo-cabezal.","Si hay fuga: quitar, cambiar el teflón por más vueltas y reinstalar.","Verificar buen caudal en todos los agujeros."]}
   ],
-  crit:["Sin fugas en la unión brazo-cabezal.","Caudal uniforme por todos los agujeros.","El cabezal queda firme y bien orientado."]
+  crit:["Sin fugas en la unión brazo-cabezal.","Caudal uniforme por todos los agujeros.","El cabezal queda firme y bien orientado."],
+  eval:[
+    ['Todos los agujeros abiertos','Chorro parejo por todos.'],
+    ['Sin fuga','Papel seco 5 min en unión brazo-cabezal.'],
+    ['Orientación','Apunta al centro de la regadera.']
+  ]
 },
 { n:13, cat:"PLOM", titulo:"Destapar desagüe con guía (serpiente)", diag:"serpiente",
   kw:"guia serpiente resorte destapar drenaje tapon profundo tambor sonda plomeria",
@@ -4185,7 +4371,12 @@ const FICHAS_MANT = [
     {f:"Trabajar el tapón y retirar",pasos:["Al llegar al tapón, girar repetidamente sin avanzar para romperlo o engancharlo.","Jalar la guía lentamente manteniendo el giro para que no se suelte el material.","Retirar limpiando lo que traiga. Enjuagar con 2 L de agua caliente."]},
     {f:"Verificar y limpiar equipo",pasos:["Abrir el agua y ver que fluya libremente.","Si sigue lento, repetir o desmontar el sifón (procedimiento 11).","Limpiar la guía antes de guardarla, sin residuos orgánicos."]}
   ],
-  crit:["El agua drena en < 10 s en un lavabo estándar.","La guía sale limpia o con el material del tapón.","Sin fugas si se abrió el sifón."]
+  crit:["El agua drena en < 10 s en un lavabo estándar.","La guía sale limpia o con el material del tapón.","Sin fugas si se abrió el sifón."],
+  eval:[
+    ['Drenado <10 s','Lavabo a la mitad.'],
+    ['Serpiente limpia','Sin residuos ni óxido en su tambor.'],
+    ['Sin fugas si abrieron sifón','Papel seco 15 min.']
+  ]
 },
 { n:14, cat:"VICE", titulo:"Mastique en ventana (o cambio de vidrio)", diag:"mastique",
   kw:"mastique masilla ventana vidrio vidriero medir sin filo cambio cristal sellar",
@@ -4200,7 +4391,13 @@ const FICHAS_MANT = [
     {f:"Aplicación del mastique",pasos:["Aplicar una capa delgada de mastique en el canal (base) antes de colocar el vidrio.","Colocar el vidrio centrado con 3 mm de holgura por lado. Presionar para asentarlo.","Aplicar mastique en el perímetro formando bisel de 45° con espátula mojada, en un solo movimiento.","Alisar con la espátula húmeda. Dejar secar mínimo 24 h antes de pintar."]},
     {f:"Pintura del mastique",pasos:["Masking tape sobre el vidrio, dejando 1 mm de separación del mastique.","Aplicar una mano de esmalte cubriendo el mastique.","Retirar la cinta con la pintura ligeramente húmeda para bordes limpios.","Secar 4 h; segunda mano si no cubrió."]}
   ],
-  crit:["El mastique forma un bisel continuo sin huecos ni burbujas.","El vidrio no vibra al presionarlo.","La pintura cubre el mastique sin escurrir sobre el vidrio.","Sin filtraciones al probar con manguera (proceso B)."]
+  crit:["El mastique forma un bisel continuo sin huecos ni burbujas.","El vidrio no vibra al presionarlo.","La pintura cubre el mastique sin escurrir sobre el vidrio.","Sin filtraciones al probar con manguera (proceso B)."],
+  eval:[
+    ['Bisel continuo','Sin huecos ni burbujas.'],
+    ['Vidrio firme','Empujar con palma: sin vibrar.'],
+    ['Manguera 2 min','Sin gota que entre.'],
+    ['Pintura sin escurrir','Sobre vidrio ni marco.']
+  ]
 },
 { n:15, cat:"VICE", titulo:"Instalar cerradura Hermex Instala Fácil", diag:"cerradura",
   kw:"cerradura hermex instala facil chapa perilla puerta barreno pestillo golpeador plantilla sierra corona",
@@ -4216,11 +4413,211 @@ const FICHAS_MANT = [
     {f:"Mecanismo de perilla/palanca",pasos:["Insertar la parte exterior (con cuadradillo) por el barreno grande.","Alinear el cuadradillo con el mecanismo del pestillo.","Colocar la parte interior y unir con los tornillos largos. Apretar firme sin deformar.","Verificar que la manija gira libre y el pestillo entra y sale."]},
     {f:"Golpeador en el marco",pasos:["Cerrar la puerta y marcar la posición del pestillo sobre el marco.","Colocar la plantilla del golpeador y marcar el orificio.","Perforar y rebajar para que quede al ras. Atornillar.","Cerrar: el pestillo debe entrar suave. Si no, reubicar el golpeador 1–2 mm."]}
   ],
-  crit:["La manija gira suave, sin juego flojo.","La puerta abre y cierra desde ambos lados.","El pestillo entra al golpeador sin forzar.","Placa frontal y golpeador al ras, sin protuberancias."]
+  crit:["La manija gira suave, sin juego flojo.","La puerta abre y cierra desde ambos lados.","El pestillo entra al golpeador sin forzar.","Placa frontal y golpeador al ras, sin protuberancias."],
+  eval:[
+    ['Cierre suave','Empujón normal, sin forzar.'],
+    ['Manija sin juego','Vuelve sola. Sin juego flojo.'],
+    ['Golpeador alineado','Pestillo entra centrado.'],
+    ['Placas al ras','Frente y golpeador al ras de la madera.']
+  ]
+},
+{ n:16, cat:"MURO", titulo:"Pintar barandales de herrería",
+  kw:"barandal herreria fierro metal esmalte lija oxido raspado brochas tiner thinner exterior",
+  generalidades:"Van a pintar un barandal de fierro o herrería (escalera, balcón, ventana). El paso más importante es la preparación: si no se lija bien el óxido y la pintura vieja, la mano nueva se descarapela en pocos meses. Se raspa, se lija, se aplica esmalte y al terminar las brochas SE DEJAN EN TINER — no se lavan con agua porque el esmalte no sale con agua, y si las dejan secar se echan a perder. El resultado es un barandal parejo, sin escurrimientos y sin manchas de pintura en el piso ni en las paredes.",
+  tiempo:[["Barandal chico (< 3 m lineales)","1 día (2 manos con secado)"],["Barandal mediano (3–8 m)","1.5 – 2 días"],["Secado entre manos","3 – 4 h"]],
+  mat:[["Esmalte anticorrosivo (color a definir)","Litro","1-2"],["Tiner o aguarrás","Litro","0.5"],["Lija grano 80 (raspar óxido)","Pliego","3"],["Lija grano 120 (afinar)","Pliego","2"],["Estopa o trapo","Pieza","4"],["Cartón o periódico (proteger piso)","Pliego","varios"],["Masking tape (bordes)","Rollo","1"]],
+  herr:["Cepillo de alambre","Espátula rígida","Taco de lijar","Brocha 2\" (barrotes)","Brocha 3\" (superficies planas)","Bote pequeño para vaciar tiner","Escalera (si aplica)"],
+  epp:["Guantes de nitrilo","Lentes de seguridad","Cubrebocas N95","Ropa vieja / overol","Calzado cerrado"],
+  fases:[
+    {f:"Preparación del área",pasos:["Cubrir el piso debajo del barandal con cartón o periódico, sobrepasando 50 cm a los lados.","Masking tape en muros o pisos que colinden con el barandal para no manchar.","Sacar todo lo que esté cerca (macetas, muebles) o cubrirlo."]},
+    {f:"Raspado y lijado",pasos:["Con la espátula rígida y el cepillo de alambre: raspar toda la pintura suelta, escamas y óxido visible. No dejar nada que se pueda desprender con la uña.","Lijar todo el barandal con grano 80 hasta que el metal quede parejo. Prestar atención a esquinas y uniones donde acumula óxido.","Segunda pasada con grano 120 para afinar la superficie.","Limpiar el polvo del lijado con estopa seca. No usar agua."]},
+    {f:"Aplicación del esmalte",pasos:["Vaciar el esmalte al bote pequeño (nunca meter la brocha directo a la lata grande).","Aplicar 1ª mano con brocha 2\" en los barrotes verticales, de arriba hacia abajo, en trazos largos.","Con brocha 3\" cubrir pasamanos y superficies planas.","No cargar mucha pintura en la brocha para evitar escurrimientos. Si escurre, pasar la brocha de inmediato para emparejar.","Dejar secar 3–4 h (o al tacto).","Aplicar 2ª mano igual que la primera. Verificar cobertura pareja sin zonas transparentes."]},
+    {f:"Cierre y limpieza — MUY IMPORTANTE",pasos:["Retirar el masking tape mientras la pintura esté ligeramente húmeda (bordes limpios).","LAS BROCHAS: NO se lavan con agua. Vaciar tiner en un bote y meter las brochas hasta cubrir las cerdas. Dejarlas ahí — se limpian al día siguiente exprimiendo el tiner y secando con estopa.","Cerrar el bote de esmalte y el de tiner. Guardar en lugar ventilado, lejos del sol.","Recoger los cartones y periódicos manchados. Meterlos en bolsa negra y sacar la bolsa a la basura.","Barrer el área bajo el barandal. Si cayeron gotas de esmalte en el piso, limpiarlas con estopa mojada en tiner ANTES de que sequen.","Guardar la escalera, los botes, las brochas (en el tiner) y las herramientas en su lugar."]}
+  ],
+  crit:["El barandal queda con color uniforme, sin zonas transparentes ni escurrimientos.","Sin manchas de esmalte en piso, paredes ni macetas cercanas.","Las brochas quedan sumergidas en tiner, no tiradas ni con esmalte seco.","El área queda barrida y sin cartones ni bolsas.","La escalera, botes y herramientas guardados en su lugar."],
+  eval:[
+    ['Cobertura contraluz','Sin ver color anterior ni metal por debajo del pasamanos.'],
+    ['Sin escurrimientos','Barrotes sin gotas colgadas.'],
+    ['Piso limpio','Sin gotas de esmalte.'],
+    ['Brochas EN TINER','CRÍTICO: sumergidas en tiner, no lavadas con agua. Tiesas = se echaron a perder.']
+  ]
+},
+{ n:17, cat:"BODE", titulo:"Limpieza y mantenimiento de bodega",
+  kw:"bodega almacen orden guardar cajas anaqueles humedad plaga inventario mantenimiento",
+  generalidades:"Van a hacer la limpieza y el mantenimiento preventivo de una bodega — no es solo barrer, es dejar el espacio ordenado, sin humedad, sin plagas y con todo en su lugar para que la próxima vez que se necesite algo, se encuentre rápido. El orden es: sacar, barrer, revisar problemas (goteras, plagas, humedad), acomodar por categorías, y al final trapear. Si detectan humedad, plaga o daño en el techo, TIENEN QUE REPORTAR con foto antes de acomodar todo — no lo tapen.",
+  tiempo:[["Bodega chica (< 10 m²)","2 – 3 h"],["Bodega mediana (10–25 m²)","4 – 6 h"],["Con reacomodo completo","1 día entero"]],
+  mat:[["Multiusos desinfectante","Litro","1"],["Jabón / detergente","Cda","3-4"],["Bolsas de basura negras (grandes)","Pieza","5-8"],["Etiquetas o cinta masking","Rollo","1"],["Marcador permanente negro","Pieza","1"],["Trapos de microfibra o estopa","Pieza","4"],["Insecticida (si aplica, previa autorización)","Bote","1"]],
+  herr:["Escoba de raíz","Recogedor","Trapeador","Cubeta 10 L","Escalera (para partes altas)","Franela para sacudir"],
+  epp:["Guantes gruesos (cartón y cosas viejas cortan)","Cubrebocas (mucho polvo)","Lentes de seguridad","Ropa vieja / overol","Calzado cerrado"],
+  fases:[
+    {f:"Antes de empezar — reportar el estado",pasos:["Tomar fotos del estado inicial de la bodega (2–3 fotos generales) y mandarlas por WhatsApp antes de mover cosas.","Preguntar si hay algo en específico que NO se debe mover o tirar. Anotar."]},
+    {f:"Sacar y clasificar",pasos:["Sacar todo lo que se pueda a un área despejada afuera de la bodega. Si es mucho, trabajar por zonas (mitad y mitad).","Ir separando en tres montones: (1) SE QUEDA — cosas útiles, (2) DUDA — reportar por foto antes de decidir, (3) BASURA — cosas rotas o inservibles.","NO tirar nada del montón DUDA sin autorización. Sacar foto y esperar respuesta."]},
+    {f:"Barrer, revisar y desinfectar",pasos:["Barrer techo a piso: primero telarañas de las esquinas altas, después paredes, al final el piso.","Revisar TODO el techo y las paredes buscando manchas de humedad, goteras, rastros de plaga (excremento de rata, cucarachas, avispas). Si hay, foto y reportar.","Revisar el piso: si hay grietas grandes o mojado sin razón, reportar.","Barrer del fondo hacia la salida. Sacar basura en bolsas negras.","Sacudir anaqueles y repisas con franela. Si hay mucha mugre, limpiar con multiusos y trapo.","Si la instrucción incluye desinfectar contra plaga: aplicar insecticida siguiendo el bote (nunca sin permiso previo)."]},
+    {f:"Acomodar y etiquetar",pasos:["Regresar las cosas SE QUEDA agrupadas por categoría: eléctrico junto, plomería junto, albañilería junta, pintura junta, limpieza junta.","Lo pesado abajo (cubetas de pintura, herramientas grandes) y lo ligero arriba (cajas de cartón, textiles).","Cosas frágiles: NO poner peso encima. Ponerlas arriba o en repisa aparte.","Etiqueta a cada zona con masking y marcador: 'ELÉCTRICO', 'PLOMERÍA', 'ALBAÑILERÍA', 'PINTURA', 'LIMPIEZA'.","No apilar contra pared si hay humedad — dejar 10 cm de separación."]},
+    {f:"Trapear y cerrar",pasos:["Cubeta con agua + desinfectante. Trapear del fondo hacia la salida.","Segunda pasada con agua limpia si quedó residuo.","Dejar los trapos y franela LIMPIOS y colgados en el área de secado — no tirados ni mojados en el piso.","Vaciar cubeta y guardar escoba, trapeador, recogedor y cubeta en su lugar.","Cerrar bolsas de basura y sacarlas.","Tomar fotos finales (2–3) y mandarlas por WhatsApp.","Cerrar la bodega con llave si aplica y entregar la llave."]}
+  ],
+  crit:["El piso barrido y trapeado, sin polvo, mugre, ni humedad visible.","Todo agrupado por categoría y etiquetado.","Nada apilado contra pared con humedad.","Sin telarañas ni rastros de plaga visibles.","Herramientas de limpieza guardadas en su lugar.","Fotos de antes y después enviadas.","Cualquier problema (humedad, plaga, goteras) reportado con foto y NO tapado."],
+  eval:[
+    ['Categorías físicas','Cada material en su zona.'],
+    ['Etiquetas visibles','Legibles desde 2 m.'],
+    ['Sin apilar contra pared','10 cm de separación en zonas húmedas.'],
+    ['Fotos antes/después','Deben llegar ambos juegos.'],
+    ['Reporte de hallazgos','Humedad, plaga o daño reportados con foto, no tapados.']
+  ]
+},
+{ n:18, cat:"AUTO", titulo:"Lavado express de auto (con encerado de llantas)",
+  kw:"auto carro coche lavado express llantas encerar shampoo cajuela kit",
+  generalidades:"Van a hacer el lavado EXPRESS de un auto — no es lavado detallado, es un lavado rápido pero completo: exterior enjabonado y enjuagado, llantas encerado con brillo, interior aspirado y superficies limpias, y la cajuela COMPLETAMENTE VACIADA excepto el kit de emergencia. El kit se queda: gato, llave de cruz, cables pasa-corriente, triángulo reflejante y llanta de refacción. Todo lo demás sale de la cajuela — bolsas, cajas, herramientas sueltas, ropa, basura. El objetivo es entregar el auto limpio por dentro y por fuera, con las llantas brillantes, y la cajuela lista solo con lo indispensable.",
+  tiempo:[["Auto chico (sedán, hatchback)","45 – 60 min"],["Auto mediano (SUV, pickup)","1 – 1.5 h"],["Con motor sucio o exceso de tierra","+20 min"]],
+  mat:[["Shampoo para auto","ml","100"],["Cera / abrillantador para llantas","ml","150"],["Limpiador de tablero (silicón)","Spray","1"],["Limpiavidrios","Spray","1"],["Agua","Cubeta 10L","2-3"],["Bolsas de basura","Pieza","2-3"],["Aromatizante para auto","Pieza","1"]],
+  herr:["Cubeta grande","Esponja o guante de lavado","Trapo de microfibra (carrocería)","Trapo de microfibra (vidrios)","Trapo aparte para llantas","Manguera (si hay toma) o cubeta con agua limpia","Aspiradora","Escoba pequeña o cepillo interior"],
+  epp:["Guantes de hule","Calzado que se pueda mojar"],
+  fases:[
+    {f:"Preparar el auto",pasos:["Estacionar en sombra si es posible (el sol seca el jabón y deja manchas).","Cerrar todas las ventanas y verificar que estén cerradas.","Abrir cajuela para inspección inicial. Tomar foto del contenido antes de sacar nada."]},
+    {f:"Vaciar la cajuela — dejar SOLO el kit",pasos:["Sacar TODO de la cajuela y ponerlo sobre una lona o en un área limpia.","Lo que se queda (KIT DE EMERGENCIA): gato, llave de cruz, cables pasa-corriente, triángulo o señalización reflejante, llanta de refacción (con su tuerca de seguridad).","Todo lo demás — bolsas, cajas, herramientas sueltas, ropa, papeles, basura — se saca y se separa: BASURA a bolsa negra; PERTENENCIAS a bolsa aparte para entregarme.","Barrer o aspirar el interior de la cajuela vacía. Limpiar con trapo húmedo si hay manchas.","Regresar SOLO el kit acomodado en su lugar. Verificar que la llanta de refacción esté bien sujeta."]},
+    {f:"Exterior — enjabonado y enjuague",pasos:["Enjuagar toda la carrocería con agua limpia para quitar polvo suelto (evita rayar la pintura al tallar).","Preparar cubeta con agua + shampoo (según indique el bote).","Con esponja o guante: enjabonar de arriba hacia abajo — techo, cofre, cajuela, puertas y por último la parte baja (que es la más sucia). NO usar la misma esponja para llantas.","Enjuagar completamente con agua limpia hasta que no salga espuma.","Secar la carrocería con microfibra grande en movimientos rectos, no circulares."]},
+    {f:"Llantas — lavado y encerado",pasos:["Con trapo aparte (nunca el de la carrocería): tallar cada llanta con agua y jabón para quitar tierra y grasa. Enjuagar.","Cuando la llanta esté SECA: aplicar cera / abrillantador con esponja o trapo dedicado, cubriendo todo el costado de hule.","Dejar que la cera absorba 2–3 minutos. Si queda blancuzco, pasar trapo seco para uniformar.","Verificar que las 4 llantas queden con el mismo brillo."]},
+    {f:"Vidrios",pasos:["Aplicar limpiavidrios y frotar con microfibra dedicada a vidrios (nunca la de carrocería).","Vidrios exteriores primero, luego interiores. Espejos laterales y retrovisor.","Revisar de lado buscando marcas; si quedan, repetir localmente."]},
+    {f:"Interior — aspirado y limpieza",pasos:["Sacar tapetes y sacudirlos afuera del auto. Aspirarlos aparte.","Aspirar asientos, respaldos, entre asientos, alfombra del piso, y la cajuela si sobró polvo.","Con limpiador de tablero (silicón): aplicar en microfibra (no rociar directo en el tablero) y limpiar tablero, volante, palanca, puertas y consola.","Vaciar el cenicero y las cavidades porta-vasos.","Regresar los tapetes limpios en su lugar.","Aplicar aromatizante — colgarlo en el retrovisor o en la ranura de ventilación."]},
+    {f:"Cierre y entrega",pasos:["Revisar por fuera con luz que no queden manchas de jabón, agua o gotas.","Revisar por dentro que no quede polvo en asientos, tablero ni alfombra.","Meter la BASURA en bolsa negra y sacarla al bote correspondiente.","Entregarme la bolsa con las PERTENENCIAS que salieron de la cajuela.","Enrollar la manguera y guardar cubeta, aspiradora, trapos y todo lo usado.","Colgar los trapos húmedos en el área de secado — no dejarlos hechos bola ni en el piso.","Tomar foto del auto terminado (frente, cajuela abierta con solo el kit, e interior) y mandarla."]}
+  ],
+  crit:["La carrocería queda sin manchas de agua ni de jabón visibles.","Las 4 llantas quedan con brillo parejo, sin exceso blancuzco.","Vidrios sin marcas ni huellas por dentro y por fuera.","Interior aspirado — sin polvo en asientos, alfombra ni tablero.","La cajuela queda VACÍA excepto el kit de emergencia acomodado.","Las pertenencias que salieron de la cajuela entregadas en bolsa aparte.","Trapos colgados en área de secado, no tirados."],
+  eval:[
+    ['Cajuela solo con el kit','Solo gato, llave de cruz, cables, triángulo y refacción.'],
+    ['Pertenencias entregadas','Bolsa aparte con lo que sacaron.'],
+    ['Llantas parejas','Las 4 con brillo igual.'],
+    ['Vidrios sin marcas','Adentro y afuera con luz lateral.'],
+    ['Tablero mate','Limpio pero mate, no como espejo.']
+  ]
+},
+{ n:19, cat:"BODE", titulo:"Crear inventario de bodega (5 categorías)",
+  kw:"inventario bodega listado material electrico plomeria albanileria pintura limpieza conteo",
+  generalidades:"Van a hacer el inventario COMPLETO de una bodega dividido en 5 categorías: ELÉCTRICO, PLOMERÍA, ALBAÑILERÍA, PINTURA y LIMPIEZA. No es solo contar cosas — es dejar un documento (hoja o WhatsApp) donde yo sepa cuánto hay de cada material, con qué unidad, y en el caso de pinturas con qué COLOR y cuántos litros o cubetas. Este inventario me sirve para saber qué comprar y qué no, y para detectar cosas perdidas o robadas. El resultado es una lista clara por categoría que se pueda leer en 2 minutos.",
+  tiempo:[["Bodega chica (< 10 m²)","1.5 – 2 h"],["Bodega mediana (10–25 m²)","2.5 – 4 h"],["Con reacomodo por categoría","+1 h"]],
+  mat:[["Libreta o cuaderno para anotar","Pieza","1"],["Bolígrafo negro o azul","Pieza","2"],["Etiquetas o cinta masking","Rollo","1"],["Marcador permanente negro","Pieza","1"],["Cinta métrica (medir sobrantes de pintura)","Pieza","1"]],
+  herr:["Celular con cámara (fotos de cada categoría)","Escalera (para revisar partes altas)","Franela para sacudir cajas mientras cuentan"],
+  epp:["Guantes gruesos","Cubrebocas (mucho polvo en cajas viejas)"],
+  fases:[
+    {f:"Antes de empezar — preparar",pasos:["Avísame por WhatsApp cuando empieces.","Tomar foto general de la bodega ANTES de mover nada.","Sacar libreta, bolígrafo y marcador. Encabezar 5 páginas o secciones: ELÉCTRICO, PLOMERÍA, ALBAÑILERÍA, PINTURA, LIMPIEZA."]},
+    {f:"ELÉCTRICO — anotar y contar",pasos:["Revisar toda la bodega y separar en una zona los materiales eléctricos.","Contar y anotar cada tipo. Ejemplos de lo que va aquí:","• Focos LED (por watts: 9W, 12W, etc.) — anotar cantidad.","• Focos ahorradores o incandescentes viejos — cantidad.","• Contactos y apagadores (nuevos y usados) — cantidad.","• Cable eléctrico (por calibre si es posible: #12, #14) — anotar metros aproximados.","• Cinta aislante — cantidad de rollos y color.","• Extensiones y multicontactos — cantidad y estado (buena / rota).","• Foquitos de decoración, series navideñas — cantidad.","• Portafocos, plafones, pantallas — cantidad.","Tomar foto de la zona de material eléctrico ya acomodado."]},
+    {f:"PLOMERÍA — anotar y contar",pasos:["Separar todo lo de plomería en otra zona. Anotar:","• Tubos de PVC (por medida: 1/2\", 3/4\", 1\") — cantidad y metros aproximados.","• Codos, coples, tees, tapones de PVC — contar por tipo.","• Llaves de paso — cantidad y medida.","• Mezcladoras completas o piezas sueltas — cantidad.","• Flexibles (fría/caliente) — cantidad y largo.","• Sapos, empaques, teflón — cantidad de piezas o rollos.","• Regaderas o cabezales — cantidad.","• Sellador, pegamento PVC — cantidad de botes y si están cerrados o abiertos.","• Guía / serpiente, émbolo — anotar si hay y en qué estado.","Tomar foto de la zona de plomería acomodada."]},
+    {f:"ALBAÑILERÍA — anotar y contar",pasos:["Separar todo material de construcción. Anotar:","• Cemento — número de bultos y si están completos o abiertos.","• Cal — bultos completos o abiertos.","• Yeso — bultos o kilos aproximados.","• Mortero, pegazulejo — bultos y de qué tipo.","• Grava, arena — cubetas o costales aproximados.","• Ladrillo, tabique, block — cantidad de piezas.","• Varilla — número de piezas y calibre.","• Alambre recocido, clavos, tornillos — kilos o botes aproximados.","• Malla, cimbra o tabla — cantidad.","Tomar foto de la zona de albañilería."]},
+    {f:"PINTURA — anotar CON COLORES Y CANTIDADES (crítico)",pasos:["Separar todos los botes de pintura, esmalte, sellador, tiner e impermeabilizante.","Por CADA cubeta o bote anotar EN ESTE ORDEN:","1. TIPO: vinílica, esmalte, sellador, impermeabilizante, tiner, aguarrás, pasta.","2. COLOR EXACTO: blanco, blanco hueso, hueso, arena, gris claro, negro, etc. Si tiene etiqueta con nombre y código, anotar el código también.","3. TAMAÑO: cubeta 19L, galón 4L, litro, cuarto, o kg (para pasta).","4. CUÁNTO QUEDA: llena, 3/4, 1/2, 1/4, casi vacía. Estimar visualmente destapándola.","5. MARCA: Comex, Berel, Sherwin, Prisa, Vinci, etc.","6. ESTADO: sellada / abierta / con nata / seca (no sirve).","Ejemplo de anotación: 'Vinílica · Blanco hueso · Comex 100 · Cubeta 19L · 1/2 llena · Abierta · OK'.","Separar aparte las cubetas SECAS o INSERVIBLES para mostrarme y ver si se tiran.","Contar brochas, rodillos y charolas — anotar cuántos hay y en qué estado.","Contar lija (por grano: 80, 120, 220) — cantidad de pliegos.","Tomar foto CLARA de todas las cubetas alineadas."]},
+    {f:"LIMPIEZA — anotar y contar",pasos:["Separar todo lo de limpieza. Anotar:","• Escobas — cantidad y estado (nueva / usada / gastada).","• Trapeadores — cantidad y estado.","• Jaladores de agua — cantidad.","• Cubetas — cantidad y tamaño (10L, 20L).","• Franelas y microfibras — cantidad aproximada.","• Detergente en polvo — cantidad de bolsas o kilos.","• Cloro, pino, multiusos, desengrasante — cuántas botellas y si están cerradas o abiertas.","• Fibras (verde, de acero, suave) — cantidad.","• Bolsas de basura — rollos o piezas.","• Aromatizantes — cantidad.","• Guantes, cubrebocas, otro EPP — cantidad.","Tomar foto de la zona de limpieza."]},
+    {f:"Cierre — entregar el inventario",pasos:["Pasar en limpio la libreta. Que cada categoría tenga su encabezado y sus renglones claros.","Sacar foto de CADA PÁGINA de la libreta y mandarlas por WhatsApp en orden.","O — mejor — copiar el inventario a mensaje de WhatsApp por categoría (más fácil de leer para mí).","Mandar aparte la lista de FALTANTES o cosas por comprar (lo que se acabó o casi se acaba).","Mandar aparte la lista de COSAS INSERVIBLES para autorización de tirar.","Etiquetar las 5 zonas de la bodega con masking y marcador.","Barrer y guardar herramientas. Cerrar la bodega."]}
+  ],
+  crit:["Las 5 categorías están anotadas por separado — no revueltas.","Cada categoría tiene lista clara con cantidades y unidades.","La categoría de PINTURA incluye tipo, color, tamaño, cuánto queda, marca y estado de cada bote.","Fotos de cada zona de la bodega enviadas.","Lista aparte de faltantes y de cosas inservibles.","Las 5 zonas quedan etiquetadas físicamente en la bodega.","Bodega barrida y cerrada al terminar."],
+  eval:[
+    ["Estructura del inventario","Las 5 categorías separadas y con encabezado. Sin materiales revueltos entre categorías. Si veo pintura anotada bajo 'eléctrico' o falta una categoría entera, el inventario no sirve."],
+    ["Detalle de la categoría PINTURA","Cada bote debe tener los 6 datos: tipo, color, tamaño, cuánto queda, marca, estado. Contar cuántas líneas de pintura vienen COMPLETAS con los 6 datos y cuántas incompletas. Si más del 20% están incompletas, se rehace esa categoría."],
+    ["Fotos entregadas","Contar: 1 foto general antes + 5 fotos de cada zona acomodada + fotos de las páginas de la libreta (o mensajes con el texto). Menos de eso, incompleto."],
+    ["Listas anexas","Verificar que llegaron 2 listas aparte: FALTANTES (para comprar) e INSERVIBLES (para autorizar tiro). Si falta alguna de las dos, el inventario está incompleto."],
+    ["Etiquetado físico","Ir a la bodega y verificar que las 5 zonas tienen etiqueta visible con masking y marcador. Si las etiquetas no se ven o están mal pegadas, no cuenta."],
+    ["Estado de la bodega al cerrar","Debe estar barrida, sin cosas en el piso central de tránsito, herramientas guardadas. Un inventario bueno con la bodega hecha un desastre no es un trabajo completo."]
+  ]
+},
+{ n:20, cat:"LIMP", titulo:"Limpieza profunda de baño (con antisarro)",
+  kw:"bano wc taza inodoro lavabo regadera azulejo antisarro cloro sarro moho jaboncillo mampara",
+  generalidades:"Van a hacer la limpieza PROFUNDA de un baño — tasa, lavabo y área de regadera con antisarro y tallado a fondo. No es limpieza rápida: es tallar el sarro que se acumula en la regadera y en las llaves, quitar el jaboncillo pegado a los azulejos, y desinfectar tasa y lavabo. El antisarro necesita TIEMPO DE REPOSO para actuar — no se aplica y se talla de inmediato, se deja actuar 10 minutos. El resultado es un baño donde los azulejos quedan sin manchas blancas de sarro ni negras de moho, la tasa por dentro y por fuera sin marcas, y la mampara/vidrio de la regadera transparente.",
+  tiempo:[["Baño chico (medio baño, solo tasa y lavabo)","45 – 60 min"],["Baño completo (con regadera)","1.5 – 2 h"],["Con mampara de vidrio y sarro fuerte","2 – 2.5 h"]],
+  mat:[
+    ["Antisarro líquido (para regadera y llaves)","ml","250"],
+    ["Cloro","ml","150"],
+    ["Desinfectante para tasa (Harpic o similar)","Bote","1"],
+    ["Multiusos desinfectante","Spray","1"],
+    ["Limpiavidrios (mampara y espejo)","Spray","1"],
+    ["Jabón en polvo o líquido","Cda","3"],
+    ["Bolsas de basura chicas","Pieza","2"],
+    ["Aromatizante","Pieza","1"],
+    ["Franelas o microfibra","Pieza","4"],
+    ["Papel absorbente","Rollo","1"]
+  ],
+  herr:["Cepillo dental viejo (juntas de azulejo)","Cepillo de mano de cerdas medias","Fibra verde (una para tasa, otra para lavabo, otra para regadera — NO SE MEZCLAN)","Escobillón de tasa","Cubeta 10 L","Jalador de agua","Papel periódico o cartón (proteger piso fuera del área húmeda)","Guantes de repuesto"],
+  epp:["Guantes de hule GRUESOS (el antisarro y el cloro son muy fuertes)","Lentes de seguridad (obligatorios con antisarro — salpica)","Cubrebocas (los vapores de cloro y antisarro no se deben respirar)","Ropa vieja / overol (el cloro decolora)","Calzado cerrado antiderrapante","VENTANA ABIERTA O EXTRACTOR ENCENDIDO — nunca trabajar con el baño cerrado usando estos químicos"],
+  fases:[
+    {f:"Preparar el área — PROTECCIÓN antes de empezar",pasos:[
+      "Abrir la ventana del baño de par en par o encender el extractor. Si no hay ventana ni extractor, dejar la puerta abierta y poner un ventilador en el pasillo apuntando hacia adentro. NO empezar sin ventilación.",
+      "Sacar TODO lo que está sobre las repisas, la tarja del lavabo y los bordes de la regadera: shampoos, jabones, cepillos, toallas, tapetes, cortina de baño, cepillos de dientes, maquillaje, decoraciones. Ponerlo en una bolsa o caja fuera del baño.",
+      "Si la cortina de baño es de tela y se puede lavar, meterla a la lavadora aparte. Si es de plástico y tiene moho, tallarla con cloro dentro de la regadera al final.",
+      "Cubrir el piso EXTERIOR del baño (el pasillo o cuarto de junto) con papel periódico o cartón por si sale agua o salpica al caminar con trapo mojado.",
+      "Sacar el tapete del baño y sacudirlo afuera. Meterlo a lavar si está sucio.",
+      "Ponerse el EPP completo ANTES de abrir los químicos: guantes gruesos, lentes, cubrebocas."
+    ]},
+    {f:"Aplicar antisarro y desinfectante — dejar actuar mientras se hace lo demás",pasos:[
+      "REGADERA: aplicar antisarro con spray o esponja sobre azulejos, llaves, cabezal de regadera y piso de la regadera. Cubrir bien las zonas con manchas blancas de sarro. NO enjuagar todavía.",
+      "TASA: verter desinfectante (Harpic o similar) por todo el borde interior de la tasa, cubriendo el agua. Dejar que escurra por las paredes internas.",
+      "LAVABO: aplicar antisarro alrededor de la llave, coladera y en las manchas blancas visibles.",
+      "IMPORTANTE: NO MEZCLAR cloro con antisarro en la misma superficie al mismo tiempo — genera gas tóxico. Si se va a usar cloro, es al final, después de enjuagar el antisarro.",
+      "Dejar actuar los químicos MÍNIMO 10 MINUTOS. Durante ese tiempo hacer la Fase 3 (tallar azulejos altos y espejo, donde no hay antisarro)."
+    ]},
+    {f:"Mientras actúa el antisarro — azulejos altos, espejo y superficies secas",pasos:[
+      "Con multiusos y franela: limpiar azulejos de la parte alta de la regadera y muros que no llevan antisarro.",
+      "Limpiar el espejo con limpiavidrios y microfibra dedicada a vidrios.",
+      "Limpiar la parte externa de la tasa: tapa, asiento (por arriba y por abajo), tanque, base y detrás. Usar multiusos y franela.",
+      "Limpiar la puerta del baño por dentro (donde acumula polvo y salpicaduras)."
+    ]},
+    {f:"Tallar la tasa por dentro",pasos:[
+      "Con el escobillón: tallar TODO el interior de la tasa, incluyendo debajo del borde donde no se ve. Prestar atención a las manchas negras o amarillas de la línea del agua.",
+      "Con cepillo viejo de dientes: tallar la unión de la tasa con el piso, los tornillos de la base y las bisagras del asiento — ahí acumula mucha suciedad.",
+      "Jalar la palanca para enjuagar. Si quedaron manchas de línea de agua, repetir la aplicación del desinfectante y volver a tallar."
+    ]},
+    {f:"Tallar y enjuagar el lavabo",pasos:[
+      "Con fibra verde DEDICADA AL LAVABO (no usar la de tasa ni la de regadera): tallar el interior del lavabo con movimiento circular.",
+      "Tallar alrededor de la llave, la coladera y el rebosadero (el agujerito pequeño arriba).",
+      "Con cepillo de dientes viejo: tallar la unión del lavabo con la meseta y la base de la llave.",
+      "Enjuagar bien con agua abundante hasta que no quede resto de antisarro.",
+      "Secar con franela — el lavabo se seca porque si queda mojado deja manchas nuevas de agua."
+    ]},
+    {f:"Tallar la regadera a fondo — lo más importante",pasos:[
+      "Con la regadera ya con 10 min de antisarro actuando: tallar con fibra verde DEDICADA A REGADERA los azulejos completos, con movimiento fuerte en las manchas de sarro.",
+      "Con cepillo de dientes viejo: tallar las JUNTAS de los azulejos (líneas grises entre azulejo y azulejo). Ahí es donde crece moho negro. Ir línea por línea, no saltarse.",
+      "Tallar el cabezal de la regadera. Si tiene agujeros tapados por sarro, sumergirlo en un bote con antisarro 15 minutos y volver a tallar.",
+      "Tallar las llaves de la regadera, la palanca y la base con cepillo.",
+      "Tallar el piso de la regadera con fibra verde y jabón.",
+      "Si hay MAMPARA DE VIDRIO: tallar con antisarro y fibra suave (no verde, raya el vidrio). Enjuagar y pasar limpiavidrios al final.",
+      "Enjuagar TODO con abundante agua caliente si es posible. Verificar que no quede resto de antisarro en ninguna superficie.",
+      "Con jalador de agua: empujar el agua hacia la coladera."
+    ]},
+    {f:"Piso del baño y cierre",pasos:[
+      "Barrer el piso del baño (pelos, papel, etc.).",
+      "Preparar cubeta con agua tibia + jabón + un chorrito de cloro (¡ya no hay antisarro en ningún lado!).",
+      "Trapear el piso desde el fondo (regadera) hacia la puerta.",
+      "Segunda pasada con agua limpia.",
+      "Regresar las cosas de las repisas — pero LIMPIAS. Pasar franela por cada frasco antes de regresarlo (el shampoo y el jabón dejan escurrimiento pegajoso).",
+      "Regresar el tapete y la cortina limpios y secos.",
+      "Poner el aromatizante.",
+      "Recoger el papel periódico o cartón del pasillo. Meter a bolsa negra junto con la basura del bote del baño y sacar.",
+      "Lavar TODAS las franelas y fibras usadas por separado con agua y jabón. Las de tasa se lavan APARTE de las demás. Colgarlas en el área de secado.",
+      "Guardar cepillos, escobillón y cubeta en su lugar.",
+      "Cerrar la ventana o apagar el extractor si el olor a químico ya se disipó.",
+      "Tomar fotos: tasa (dentro y fuera), lavabo, regadera (azulejos y piso), mampara si aplica. Mandarlas."
+    ]}
+  ],
+  crit:[
+    "Los azulejos de la regadera quedan SIN manchas blancas de sarro visibles ni negras de moho en las juntas.",
+    "La tasa por dentro sin línea del agua ni marcas amarillas; por fuera sin polvo ni salpicaduras.",
+    "El lavabo brillante, sin manchas de agua ni sarro alrededor de la llave.",
+    "El cabezal de la regadera con todos los agujeros destapados (sale chorro parejo).",
+    "La mampara de vidrio (si hay) transparente, sin manchas blancas ni jaboncillo.",
+    "El espejo sin marcas ni rayas.",
+    "El piso trapeado, no resbaloso, sin residuo de jabón.",
+    "El baño huele limpio — no a cloro, no a moho, no a antisarro.",
+    "Todos los objetos de las repisas regresados a su lugar, limpios por fuera."
+  ],
+  eval:[
+    ["Pasa el 'dedo blanco' en la regadera","Pasar el dedo (con guante blanco o servilleta blanca) por una junta de azulejo aleatoria. Si sale gris o negro, no se talló bien esa zona. Repetir en 3 puntos."],
+    ["Prueba de sarro en llaves","Ver de cerca las llaves de la regadera y del lavabo con luz. No debe haber depósitos blancos alrededor de la base de la llave ni en los conectores. Si los hay, faltó antisarro."],
+    ["Cabezal de regadera","Abrir el agua 30 segundos. El chorro debe salir parejo por todos los agujeros. Si hay agujeros que no sueltan agua o sueltan chorro chueco, el cabezal no se destapó."],
+    ["Interior de la tasa con luz","Ver dentro de la tasa CON LINTERNA (o la del celular). No debe verse línea de agua café, marcas amarillas ni película. Debajo del borde también se revisa — es donde no tallan."],
+    ["Mampara o vidrio","Cerrar la mampara y ver a contraluz. No debe verse jaboncillo escurrido ni gotas secas. Si al mover la cara ves 'huellas de agua', faltó pasar limpiavidrios al final."],
+    ["Olor","Al entrar al baño 30 min después de terminado, el olor debe ser neutro o levemente a aromatizante. Si aún huele fuerte a cloro/antisarro, no se ventiló bien; si huele a moho, no se tallaron las juntas."],
+    ["Piso — resbalón test","Caminar sobre el piso ya seco. Si la suela se pega o resbala, quedó residuo de jabón — falta segunda pasada con agua limpia."],
+    ["Repisas y objetos","Levantar 2-3 frascos al azar (shampoo, jabón). Si al levantarlos hay marca circular pegajosa debajo, no se limpiaron por fuera antes de regresarlos."]
+  ]
 }
 ];
 
-const FICHAS_CAT_NOMBRES={LIMP:'Limpieza',MURO:'Muros y pintura',ELEC:'Eléctrico',PLOM:'Plomería',VICE:'Vidrios y cerraduras'};
+const FICHAS_CAT_NOMBRES={LIMP:'Limpieza',MURO:'Muros y pintura',ELEC:'Eléctrico',PLOM:'Plomería',VICE:'Vidrios y cerraduras',BODE:'Bodega',HERR:'Herrería',AUTO:'Automóvil'};
 
 // Sugerir fichas para un texto de incidente (match por keywords/título)
 function sugerirFichas(texto){
@@ -4315,6 +4712,16 @@ function openFichaDetail(fichaN,incId){
         <div style="font-size:12px;line-height:1.6">${(fase.pasos||[]).map((p,i)=>`<div style="margin-bottom:4px">${i+1}. ${p}</div>`).join('')}</div>
       </div>`;
     });
+  }
+  // Criterios de aceptación
+  if(f.crit&&f.crit.length){
+    body+=`<div class="st-sm">✅ Criterios de aceptación</div><div class="card" style="padding:10px 14px;margin-bottom:12px"><div style="font-size:12px;line-height:1.7">${f.crit.map(x=>'• '+x).join('<br>')}</div></div>`;
+  }
+  // Evaluación del supervisor (pruebas objetivas)
+  if(f.eval&&f.eval.length){
+    body+=`<div class="st-sm">🔍 Evaluación del supervisor</div><div class="card" style="padding:10px 14px;margin-bottom:12px">`;
+    f.eval.forEach(e=>{body+=`<div style="margin-bottom:8px"><div style="font-size:12px;font-weight:700;color:var(--gold)">${e[0]}</div><div style="font-size:11.5px;color:var(--dim);line-height:1.5">${e[1]}</div></div>`;});
+    body+=`</div>`;
   }
   // Advertencias/tips
   if(f.tips&&f.tips.length){
@@ -4411,7 +4818,7 @@ function cGenerar(y,m){
   const setUV=(k,d)=>{uv[k]=cIso(d);};
   const venc=(k,freq,f)=>{const u=uv[k];if(!u)return 999;return cDiff(cIso(f),u)-freq;};
   const primero=new Date(y,m,1),ultimo=new Date(y,m+1,0);
-  const zonasList=Object.keys(ZONAS_CRONO).filter(z=>z!=='toluca');
+  const zonasList=Object.keys(ZONAS_CRONO);
   const inmsZona=cInmueblesConZona();
   const inmPorZona={};
   zonasList.forEach(z=>inmPorZona[z]=inmsZona.filter(i=>i.zona===z));
@@ -4526,16 +4933,13 @@ function cGenerar(y,m){
     if(tareasHoy.length)cron[fecha]=tareasHoy;
   }
 
-  // Toluca bimestral
-  const tolFreq=60;
-  const necTol=!CRONO.toluca_ultima||cDiff(cIso(ultimo),CRONO.toluca_ultima)>=tolFreq;
-  const hayToluca=DB.inmuebles.some(i=>i.zona==='toluca');
-  if(necTol&&hayToluca){
-    for(let dd=new Date(y,m,8);dd<=new Date(y,m,20);dd=cAdd(dd,1)){
-      if(!cLigero(dd)){const f=cIso(dd);if(!cron[f])cron[f]=[];cron[f].push({tipo:'mant',zona:'toluca',titulo:'🚙 Visita Toluca (bimestral)',detalle:'revisión general'});break;}
-    }
-  }
 
+  // Recordatorios al dueño: días 1–5 del mes (lista inquilinaria + presupuesto)
+  for(let dnum=1;dnum<=5;dnum++){
+    const dd=new Date(y,m,dnum);const f=cIso(dd);
+    if(!cron[f])cron[f]=[];
+    cron[f].push({tipo:'recordatorio',zona:'recordatorio',titulo:'📑 Reporte al dueño',detalle:dnum===1?'Generar lista inquilinaria y capturar presupuesto del mes':'Pendiente: lista inquilinaria / presupuesto'});
+  }
   CRONO.cronograma[mk]=cron;
   cronoSave();
   return cron;
@@ -4771,7 +5175,7 @@ function cronoSetFreq(tipo,id,val){
 
 // Auto-asignar zonas conocidas (mapeo validado)
 function cronoAsignarZonasAuto(){
-  const MAP={'AEROLITO':'aragon','JASPE':'aragon','PATA ROSA':'aragon','PATA VERDE':'aragon','CALLE 19':'azcapo','CALLE 24':'azcapo','ETEN 595':'lindavista','ETEN 687':'lindavista','ZAPATA':'ecatepec'};
+  const MAP={'AEROLITO':'aragon','JASPE':'aragon','PATA ROSA':'aragon','PATA VERDE':'aragon','CALLE 19':'azcapo','CALLE 24':'azcapo','ETEN 595':'lindavista','ETEN 687':'lindavista','ZAPATA':'zapata_toluca'};
   let n=0;
   DB.inmuebles.forEach(i=>{
     const key=(i.nombre||'').trim().toUpperCase();
@@ -5159,6 +5563,596 @@ function exportCuentasExcel(){
 }
 
 // ─── BACK OFFICE (antes Reportes) — solo descargas ──
+// ═══════════════════════════════════════════════════════════════
+//  MÓDULO PM/GESTIÓN AMPLIADO — Fases 2,3,4
+// ═══════════════════════════════════════════════════════════════
+
+// ── Cargador html2pdf (PDFs con formato, Segoe UI) ──
+let _h2pLoading=null;
+function ensureHtml2pdf(){
+  if(typeof html2pdf!=='undefined')return Promise.resolve(true);
+  if(_h2pLoading)return _h2pLoading;
+  const urls=[
+    'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
+    'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js',
+    'https://unpkg.com/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js'
+  ];
+  _h2pLoading=new Promise((resolve)=>{
+    let idx=0;
+    const tryNext=()=>{
+      if(typeof html2pdf!=='undefined'){resolve(true);return;}
+      if(idx>=urls.length){resolve(false);return;}
+      const sc=document.createElement('script');sc.src=urls[idx++];
+      sc.onload=()=>setTimeout(()=>{typeof html2pdf!=='undefined'?resolve(true):tryNext();},80);
+      sc.onerror=tryNext;document.head.appendChild(sc);
+    };
+    tryNext();
+  });
+  return _h2pLoading;
+}
+// Genera PDF a partir de HTML interno, con hoja Segoe UI
+async function pdfDesdeHTML(innerHTML, filename){
+  snack('⏳ Generando PDF...');
+  const ok=await ensureHtml2pdf();
+  if(!ok){snack('⚠️ No se pudo cargar el generador de PDF (revisa tu conexión)');return;}
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:794px;background:#fff';
+  wrap.innerHTML=`<div style="font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#1a1a1a;padding:34px 38px;font-size:13px;line-height:1.5">${innerHTML}</div>`;
+  document.body.appendChild(wrap);
+  try{
+    await html2pdf().set({
+      margin:[8,0,10,0],filename,
+      image:{type:'jpeg',quality:0.95},
+      html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+      pagebreak:{mode:['css','legacy']}
+    }).from(wrap.firstChild).save();
+    snack('✓ PDF descargado');
+  }catch(e){console.error(e);snack('Error PDF: '+e.message);}
+  finally{document.body.removeChild(wrap);}
+}
+// Encabezado de texto reutilizable (sin membrete oficial)
+function pdfEncabezado(titulo,sub){
+  return `<div style="border-bottom:2px solid #0059A9;padding-bottom:10px;margin-bottom:16px">
+    <div style="font-size:11px;letter-spacing:1px;color:#0059A9;font-weight:700;text-transform:uppercase">Oficina Familiar · Administración de inmuebles</div>
+    <div style="font-size:22px;font-weight:700;color:#16202E;margin-top:4px">${titulo}</div>
+    ${sub?`<div style="font-size:12px;color:#555;margin-top:2px">${sub}</div>`:''}
+    <div style="font-size:10px;color:#888;margin-top:4px">Generado ${new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'})} · ${new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</div>
+  </div>`;
+}
+
+// ═══════════ FASE 2 · PRESUPUESTO MENSUAL ═══════════
+// Árbol del presupuesto. tipo: 'auto'(calc desde datos) | 'calc'(fórmula) | 'edit'(capturable)
+const PRESUP_SECCIONES=[
+  {sec:'INGRESOS FIJOS',color:'#426A54',lineas:[
+    {k:'num_deptos',l:'Número de departamentos',tipo:'auto'},
+    {k:'renta_mensual',l:'Renta mensual esperada',tipo:'auto'},
+    {k:'ingreso_estimado',l:'Ingreso Mensual Estimado',tipo:'calc'},
+  ]},
+  {sec:'EGRESOS FIJOS MENSUALES',color:'#E05C5C',lineas:[
+    {k:'pago_serv_inmob',l:'Pago de Servicios Inmobiliarios',tipo:'edit'},
+    {k:'rep_plomeria',l:'Reparaciones · Plomería',tipo:'edit'},
+    {k:'rep_electricidad',l:'Reparaciones · Electricidad',tipo:'edit'},
+    {k:'rep_albanileria',l:'Reparaciones · Albañilería',tipo:'edit'},
+    {k:'rep_vidrieria',l:'Reparaciones · Vidriería',tipo:'edit'},
+    {k:'rep_cerrajeria',l:'Reparaciones · Cerrajería',tipo:'edit'},
+    {k:'mant_servicios_varios',l:'Mantenimiento · Servicios Varios',tipo:'edit'},
+    {k:'mant_limpieza',l:'Mantenimiento · Limpieza',tipo:'edit'},
+    {k:'mant_amenidades',l:'Mantenimiento · Amenidades (refrescos, comida, agua)',tipo:'edit'},
+    {k:'mant_pintura',l:'Mantenimiento · Pintura',tipo:'edit'},
+    {k:'mant_material',l:'Mantenimiento · Material',tipo:'edit'},
+    {k:'predial',l:'Predial',tipo:'edit'},
+    {k:'seguros',l:'Seguros',tipo:'edit'},
+    {k:'trans_gasolina',l:'Transporte · Gasolina',tipo:'edit'},
+    {k:'trans_mecanico',l:'Transporte · Reparaciones / Mecánico',tipo:'edit'},
+    {k:'serv_agua',l:'Servicios · Agua',tipo:'edit'},
+    {k:'serv_luz',l:'Servicios · Luz',tipo:'edit'},
+    {k:'serv_basura',l:'Servicios · Basura',tipo:'edit'},
+    {k:'serv_internet',l:'Servicios · Internet',tipo:'edit'},
+    {k:'serv_movistar',l:'Servicios · Movistar Irma',tipo:'edit'},
+    {k:'serv_bait',l:'Servicios · Bait Irma',tipo:'edit'},
+    {k:'plagas',l:'Plagas',tipo:'edit'},
+    {k:'oficina',l:'Otros · Oficina (papelería e impresiones)',tipo:'edit'},
+    {k:'salario_gerente',l:'Otros · Salario Gerente',tipo:'edit'},
+    {k:'salario_director',l:'Otros · Salario Director',tipo:'edit'},
+    {k:'opex_subtotal',l:'Gastos Operativos Mensuales',tipo:'calc'},
+  ]},
+  {sec:'INGRESOS − GASTOS',color:'#0059A9',lineas:[
+    {k:'ganancia_op',l:'Ganancia (ingresos − operativos)',tipo:'calc'},
+  ]},
+  {sec:'GASTOS GERENCIALES',color:'#B8860B',lineas:[
+    {k:'ger_super',l:'Súper',tipo:'edit'},
+    {k:'ger_temu',l:'Temu / Compras online',tipo:'edit'},
+    {k:'ger_amenidades_irma',l:'Amenidades Irma (otros)',tipo:'edit'},
+    {k:'ger_comida',l:'Comida (Toks, Vips, Portón)',tipo:'edit'},
+    {k:'ger_subtotal',l:'Subtotal gerenciales',tipo:'calc'},
+  ]},
+  {sec:'GASTOS PERSONALES',color:'#8A5CC0',lineas:[
+    {k:'gastos_personales',l:'Gastos personales',tipo:'edit'},
+  ]},
+  {sec:'RESULTADO',color:'#16202E',lineas:[
+    {k:'ganancia_bruta',l:'GANANCIA BRUTA (ingresos − operativos)',tipo:'calc'},
+    {k:'ganancia_final',l:'GANANCIA − GERENCIALES − PERSONALES',tipo:'calc'},
+  ]},
+];
+// Subcategorías opcionales de gasto → mapean a línea del presupuesto (misma clave)
+const SUBCATS_GASTO={
+  carros:['trans_gasolina','trans_mecanico'],
+  mantenimiento:['rep_plomeria','rep_electricidad','rep_albanileria','rep_vidrieria','rep_cerrajeria','mant_servicios_varios','mant_limpieza','mant_amenidades','mant_pintura','mant_material','plagas'],
+  mano_obra:['pago_serv_inmob','salario_gerente','salario_director','oficina'],
+  servicios:['serv_agua','serv_luz','serv_basura','serv_internet','serv_movistar','serv_bait','predial','seguros'],
+  otros:['ger_super','ger_temu','ger_amenidades_irma','ger_comida','gastos_personales']
+};
+function presupLineLabel(k){for(const s of PRESUP_SECCIONES)for(const l of s.lineas)if(l.k===k)return l.l;return k;}
+
+let presupCtx={propId:null,anio:null,mes:null};
+function getPresupuesto(propId,anio,mes){
+  let d=DB.presupuestos.find(x=>x.propietarioId===propId&&x.anio===anio&&x.mes===mes);
+  if(!d){d={id:uid(),propietarioId:propId,anio,mes,lineas:{},creado:nowISO()};DB.presupuestos.push(d);}
+  if(!d.lineas)d.lineas={};
+  return d;
+}
+function presupIngresos(propId){
+  const act=DB.inquilinos.filter(t=>t.estado==='activo'&&t.propietarioId===propId&&Number(t.renta||0)>0);
+  return{deptos:act.length,renta:act.reduce((s,t)=>s+Number(t.renta||0),0)};
+}
+function gastoRealLinea(propId,anio,mes,lineKey){
+  return DB.gastos.filter(g=>g.propietarioId===propId&&g.subcat===lineKey&&(()=>{const d=new Date(g.fecha);return d.getMonth()===mes&&d.getFullYear()===anio;})()).reduce((s,g)=>s+Number(g.monto||0),0);
+}
+function calcPresup(d){
+  const ing=presupIngresos(d.propId||presupCtx.propId);
+  const L=d.lineas;const v=k=>Number(L[k]||0);
+  const opexKeys=PRESUP_SECCIONES[1].lineas.filter(x=>x.tipo==='edit').map(x=>x.k);
+  const opex=opexKeys.reduce((s,k)=>s+v(k),0);
+  const ger=['ger_super','ger_temu','ger_amenidades_irma','ger_comida'].reduce((s,k)=>s+v(k),0);
+  const pers=v('gastos_personales');
+  const ingreso=ing.renta;
+  return{deptos:ing.deptos,ingreso,opex,ger,pers,
+    ganancia_op:ingreso-opex,ganancia_bruta:ingreso-opex,ganancia_final:ingreso-opex-ger-pers};
+}
+function openPresupuestoSelector(){
+  if(DB.propietarios.length===0){snack('No hay propietarios');return;}
+  const now=new Date();
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">📋 Presupuesto mensual</div>
+    <div class="fg"><label class="fl">Propietario</label><select class="fi" id="pr-prop">${DB.propietarios.map(p=>`<option value="${p.id}">${p.nombre}</option>`).join('')}</select></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Mes</label><select class="fi" id="pr-mes">${MF.map((m,i)=>`<option value="${i}"${i===now.getMonth()?' selected':''}>${m}</option>`).join('')}</select></div>
+      <div class="fg"><label class="fl">Año</label><input class="fi" type="number" id="pr-anio" value="${now.getFullYear()}"></div>
+    </div>
+    <button class="btn bg bfu" onclick="const p=document.getElementById('pr-prop').value,m=+document.getElementById('pr-mes').value,a=+document.getElementById('pr-anio').value;closeM();openPresupuesto(p,a,m)">Abrir presupuesto →</button></div>`);
+}
+function openPresupuesto(propId,anio,mes){
+  presupCtx={propId,anio,mes};
+  const d=getPresupuesto(propId,anio,mes);d.propId=propId;
+  const prop=getPropietario(propId);
+  const ing=presupIngresos(propId);
+  const calc=calcPresup(d);
+  const pct=(n)=>ing.renta>0?(n/ing.renta*100).toFixed(1)+'%':'—';
+  const row=(lin)=>{
+    if(lin.tipo==='auto'){
+      const val=lin.k==='num_deptos'?ing.deptos:ing.renta;
+      return `<tr><td style="padding:7px 6px;font-size:11px">${lin.l}</td>
+        <td style="text-align:right;font-size:12px;font-weight:600;padding:7px 4px">${lin.k==='num_deptos'?ing.deptos:fmt(ing.renta)}</td>
+        <td style="text-align:right;font-size:10px;color:var(--dim);padding:7px 4px">—</td>
+        <td style="text-align:right;font-size:10px;color:var(--dim);padding:7px 4px">${lin.k==='num_deptos'?'':'100%'}</td></tr>`;
+    }
+    if(lin.tipo==='calc'){
+      const m={ingreso_estimado:ing.renta,opex_subtotal:calc.opex,ganancia_op:calc.ganancia_op,ger_subtotal:calc.ger,ganancia_bruta:calc.ganancia_bruta,ganancia_final:calc.ganancia_final}[lin.k]||0;
+      return `<tr style="background:#EDF1F6"><td style="padding:8px 6px;font-size:11.5px;font-weight:700">${lin.l}</td>
+        <td style="text-align:right;font-size:13px;font-weight:700;color:${m<0?'#E05C5C':'#0059A9'};padding:8px 4px">${fmt(m)}</td>
+        <td style="text-align:right;font-size:10px;color:var(--dim);padding:8px 4px"></td>
+        <td style="text-align:right;font-size:10px;color:var(--dim);padding:8px 4px">${pct(m)}</td></tr>`;
+    }
+    const real=gastoRealLinea(propId,anio,mes,lin.k);
+    const presupVal=Number(d.lineas[lin.k]||0);
+    return `<tr><td style="padding:5px 6px;font-size:11px">${lin.l}</td>
+      <td style="padding:4px 4px"><input type="number" inputmode="decimal" value="${presupVal||''}" placeholder="0" onchange="setPresupLinea('${lin.k}',this.value)" style="width:78px;text-align:right;background:var(--s2);border:1px solid #CBD5DF;border-radius:6px;padding:5px 6px;font-size:12px;color:var(--txt)"></td>
+      <td style="text-align:right;font-size:11px;padding:5px 4px;color:${real>0?(real>presupVal&&presupVal>0?'#E05C5C':'#426A54'):'var(--dim)'}">${real>0?fmt(real):'—'}</td>
+      <td style="text-align:right;font-size:10px;color:var(--dim);padding:5px 4px">${presupVal>0?pct(presupVal):''}</td></tr>`;
+  };
+  let tabla='';
+  PRESUP_SECCIONES.forEach(s=>{
+    tabla+=`<tr><td colspan="4" style="background:${s.color};color:#fff;font-size:10px;font-weight:700;letter-spacing:.5px;padding:6px 8px">${s.sec}</td></tr>`;
+    s.lineas.forEach(l=>tabla+=row(l));
+  });
+  modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
+    <div class="mt2">📋 Presupuesto · ${prop?.nombre||''}</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:10px">${MF[mes]} ${anio} · columna <b>Real</b> se llena sola con los gastos del mes que tengan subcategoría.</div>
+    <div style="overflow-x:auto;border:1px solid #E4E9EF;border-radius:9px">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--s2)">
+        <th style="text-align:left;padding:7px 6px;font-size:9px;color:var(--dim);text-transform:uppercase">Concepto</th>
+        <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Presupuesto</th>
+        <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">Real</th>
+        <th style="text-align:right;padding:7px 4px;font-size:9px;color:var(--dim);text-transform:uppercase">% ing.</th>
+      </tr></thead><tbody>${tabla}</tbody></table></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn bg" style="flex:1" onclick="exportPresupuestoPDF('${propId}',${anio},${mes})">📄 PDF</button>
+      <button class="btn bo" onclick="closeM()">Cerrar</button>
+    </div><div style="height:14px"></div></div>`);
+}
+function setPresupLinea(k,val){
+  const d=getPresupuesto(presupCtx.propId,presupCtx.anio,presupCtx.mes);
+  d.lineas[k]=Number(val)||0;
+  saveDB('presupuestos');
+  // refrescar totales sin cerrar
+  openPresupuesto(presupCtx.propId,presupCtx.anio,presupCtx.mes);
+}
+async function exportPresupuestoPDF(propId,anio,mes){
+  const d=getPresupuesto(propId,anio,mes);d.propId=propId;
+  const prop=getPropietario(propId);const ing=presupIngresos(propId);const calc=calcPresup(d);
+  const pct=(n)=>ing.renta>0?(n/ing.renta*100).toFixed(1)+'%':'';
+  let rows='';
+  PRESUP_SECCIONES.forEach(s=>{
+    rows+=`<tr><td colspan="4" style="background:${s.color};color:#fff;font-weight:700;font-size:11px;padding:6px 8px">${s.sec}</td></tr>`;
+    s.lineas.forEach(l=>{
+      let val,realCol='';
+      if(l.tipo==='auto')val=l.k==='num_deptos'?ing.deptos:fmt(ing.renta);
+      else if(l.tipo==='calc'){const m={ingreso_estimado:ing.renta,opex_subtotal:calc.opex,ganancia_op:calc.ganancia_op,ger_subtotal:calc.ger,ganancia_bruta:calc.ganancia_bruta,ganancia_final:calc.ganancia_final}[l.k]||0;val='<b>'+fmt(m)+'</b>';}
+      else{const pv=Number(d.lineas[l.k]||0);val=pv?fmt(pv):'—';const rl=gastoRealLinea(propId,anio,mes,l.k);realCol=rl?fmt(rl):'';}
+      const isCalc=l.tipo==='calc';
+      rows+=`<tr style="${isCalc?'background:#f0f4f8;':''}"><td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:12px">${l.l}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:12px">${val}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:11px;color:#555">${realCol}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:11px;color:#888">${l.tipo==='edit'&&d.lineas[l.k]?pct(Number(d.lineas[l.k])):(l.tipo==='calc'?pct({ingreso_estimado:ing.renta,opex_subtotal:calc.opex,ganancia_op:calc.ganancia_op,ger_subtotal:calc.ger,ganancia_bruta:calc.ganancia_bruta,ganancia_final:calc.ganancia_final}[l.k]||0):'')}</td></tr>`;
+    });
+  });
+  const inner=pdfEncabezado('Presupuesto mensual — estado de resultados',`${prop?.nombre||''} · ${MF[mes]} ${anio}`)+
+    `<table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid #0059A9;font-size:11px">Concepto</th>
+      <th style="text-align:right;padding:6px 8px;border-bottom:2px solid #0059A9;font-size:11px">Presupuesto</th>
+      <th style="text-align:right;padding:6px 8px;border-bottom:2px solid #0059A9;font-size:11px">Real</th>
+      <th style="text-align:right;padding:6px 8px;border-bottom:2px solid #0059A9;font-size:11px">% ing.</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  await pdfDesdeHTML(inner,`presupuesto_${(prop?.nombre||'').replace(/\s+/g,'_')}_${anio}_${String(mes+1).padStart(2,'0')}.pdf`);
+}
+
+// ═══════════ FASE 3 · TÉCNICOS + ORDEN DE TRABAJO + CIERRE ═══════════
+const TIPOS_MANT={
+  plomeria:{n:'Plomería',i:'🚰',cats:['PLOM'],subcat:'rep_plomeria'},
+  electricidad:{n:'Electricidad',i:'⚡',cats:['ELEC'],subcat:'rep_electricidad'},
+  albanileria:{n:'Albañilería',i:'🧱',cats:['MURO'],subcat:'rep_albanileria'},
+  pintura:{n:'Pintura',i:'🎨',cats:['MURO'],subcat:'mant_pintura'},
+  cerrajeria:{n:'Cerrajería',i:'🔐',cats:['VICE'],subcat:'rep_cerrajeria'},
+  vidrieria:{n:'Vidriería',i:'🪟',cats:['VICE'],subcat:'rep_vidrieria'},
+  herreria:{n:'Herrería',i:'🔩',cats:['HERR'],subcat:'mant_material'},
+  limpieza:{n:'Limpieza',i:'🧹',cats:['LIMP'],subcat:'mant_limpieza'},
+  otro:{n:'Otro',i:'🔧',cats:[],subcat:''}
+};
+function waLink(tel,texto){
+  const n=(tel||'').replace(/\D/g,'');
+  const num=n?(n.length===10?'52'+n:n):'';
+  return 'https://wa.me/'+num+'?text='+encodeURIComponent(texto);
+}
+
+// ── Catálogo de técnicos ──
+function openTecnicos(){
+  const ts=DB.tecnicos.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  let body=`<div class="ms" style="max-height:92vh"><div class="mh"></div>
+    <div class="mt2">🧑‍🔧 Técnicos de confianza</div>
+    <button class="btn bg bfu" style="margin-bottom:12px" onclick="openTecnicoForm()">+ Nuevo técnico</button>`;
+  if(ts.length===0)body+=`<div class="es"><div class="ei">🧑‍🔧</div><div class="et">Sin técnicos. Agrega el primero.</div></div>`;
+  ts.forEach(t=>{
+    const esp=(t.especialidades||[]).map(e=>TIPOS_MANT[e]?TIPOS_MANT[e].i:'').join(' ');
+    body+=`<div style="background:var(--s1);border:1px solid #E4E9EF;border-radius:9px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
+      <div style="flex:1;min-width:0;cursor:pointer" onclick="openTecnicoForm('${t.id}')">
+        <div style="font-size:13px;font-weight:600">${esp} ${t.nombre}</div>
+        <div style="font-size:10px;color:var(--dim)">${(t.especialidades||[]).map(e=>TIPOS_MANT[e]?.n||e).join(', ')||'sin especialidad'}${t.zonas&&t.zonas.length?' · '+t.zonas.map(z=>ZONAS_CRONO[z]?.nombre||z).join(', '):''}${t.costo_prom?' · ~'+fmt(t.costo_prom):''}</div>
+      </div>
+      ${t.telefono?`<a class="btn bs bsm" style="text-decoration:none" href="${waLink(t.telefono,'Hola '+t.nombre)}" target="_blank">💬</a>`:''}
+    </div>`;
+  });
+  body+=`<button class="btn bo bfu" style="margin-top:10px" onclick="closeM()">Cerrar</button></div>`;
+  modal(body);
+}
+function openTecnicoForm(id){
+  const t=id?DB.tecnicos.find(x=>x.id===id):{};
+  const esp=t.especialidades||[],zon=t.zonas||[];
+  modal(`<div class="ms" style="max-height:92vh"><div class="mh"></div>
+    <div class="mt2">🧑‍🔧 ${id?'Editar':'Nuevo'} técnico</div>
+    <div class="fg"><label class="fl">Nombre *</label><input class="fi" id="tc-nom" value="${(t.nombre||'').replace(/"/g,'&quot;')}"></div>
+    <div class="fg"><label class="fl">Teléfono (WhatsApp)</label><input class="fi" id="tc-tel" value="${t.telefono||''}" placeholder="10 dígitos"></div>
+    <div class="fg"><label class="fl">Especialidades</label><div style="display:flex;flex-wrap:wrap;gap:6px">
+      ${Object.entries(TIPOS_MANT).filter(([k])=>k!=='otro').map(([k,v])=>`<label class="chip" style="cursor:pointer"><input type="checkbox" class="tc-esp" value="${k}" ${esp.includes(k)?'checked':''} style="margin-right:4px">${v.i} ${v.n}</label>`).join('')}
+    </div></div>
+    <div class="fg"><label class="fl">Zonas que cubre</label><div style="display:flex;flex-wrap:wrap;gap:6px">
+      ${Object.entries(ZONAS_CRONO).map(([k,z])=>`<label class="chip" style="cursor:pointer"><input type="checkbox" class="tc-zona" value="${k}" ${zon.includes(k)?'checked':''} style="margin-right:4px">${z.nombre}</label>`).join('')}
+    </div></div>
+    <div class="fg"><label class="fl">Costo promedio por servicio</label><input class="fi" type="number" id="tc-costo" value="${t.costo_prom||''}"></div>
+    <div class="fg"><label class="fl">Notas</label><input class="fi" id="tc-notas" value="${(t.notas||'').replace(/"/g,'&quot;')}"></div>
+    <div style="display:flex;gap:8px">
+      ${id?`<button class="btn bd" onclick="delTecnico('${id}')">🗑️</button>`:''}
+      <button class="btn bg bfu" onclick="saveTecnico('${id||''}')">Guardar</button>
+    </div></div>`);
+}
+function saveTecnico(id){
+  const nom=document.getElementById('tc-nom').value.trim();
+  if(!nom){snack('Falta nombre');return;}
+  const obj={nombre:nom,telefono:document.getElementById('tc-tel').value.trim(),
+    especialidades:Array.from(document.querySelectorAll('.tc-esp:checked')).map(x=>x.value),
+    zonas:Array.from(document.querySelectorAll('.tc-zona:checked')).map(x=>x.value),
+    costo_prom:Number(document.getElementById('tc-costo').value)||0,
+    notas:document.getElementById('tc-notas').value.trim()};
+  if(id)Object.assign(DB.tecnicos.find(x=>x.id===id),obj);
+  else DB.tecnicos.push({id:uid(),...obj,creado:nowISO()});
+  saveDB('tecnicos');closeM();snack('Técnico guardado ✓');openTecnicos();
+}
+function delTecnico(id){if(!confirm('¿Eliminar técnico?'))return;DB.tecnicos=DB.tecnicos.filter(x=>x.id!==id);saveDB('tecnicos');closeM();snack('Eliminado');openTecnicos();}
+
+// ── Bloque OrdenTrabajo dentro del incidente ──
+function incInmueble(i){
+  return DB.inmuebles.find(x=>{const l=(i.lugar||'').toLowerCase(),n=(x.nombre||'').toLowerCase();return l&&n&&(l.includes(n)||n.includes(l));});
+}
+function renderOTBlock(i){
+  const ot=i.ot;
+  if(!ot||!ot.agendado){
+    return `<div class="st-sm" style="margin-top:16px">🧰 Orden de trabajo</div>
+      <button class="btn bo bfu" onclick="openAgendarTecnico('${i.id}')" style="text-align:left;padding:11px 14px">
+        <div style="font-weight:600;font-size:12.5px">+ Agendar técnico</div>
+        <div style="font-size:10px;color:var(--dim);margin-top:2px">Elige técnico por tipo y zona, fecha y ficha de supervisión</div></button>`;
+  }
+  const tec=DB.tecnicos.find(x=>x.id===ot.tecnicoId);
+  const tipo=TIPOS_MANT[ot.tipo]||TIPOS_MANT.otro;
+  const ficha=ot.fichaN?FICHAS_MANT.find(f=>f.n===ot.fichaN):null;
+  let h=`<div class="st-sm" style="margin-top:16px">🧰 Orden de trabajo</div>
+    <div class="card" style="padding:11px 14px;border-left:3px solid #0059A9">
+      <div class="ir"><span class="ik">Tipo</span><span class="iv">${tipo.i} ${tipo.n}</span></div>
+      <div class="ir"><span class="ik">Técnico</span><span class="iv">${tec?tec.nombre:'—'}</span></div>
+      <div class="ir"><span class="ik">Cita</span><span class="iv">${ot.cita_fecha||'—'}${ot.cita_hora?' '+ot.cita_hora:''}</span></div>
+      ${ficha?`<div class="ir"><span class="ik">Ficha</span><span class="iv" style="cursor:pointer;color:var(--gold)" onclick="openFichaDetail(${ficha.n},'')">#${ficha.n} ${ficha.titulo}</span></div>`:''}
+      ${ot.cerrado?`<div class="ir"><span class="ik">Estado</span><span class="iv" style="color:var(--g)">✓ Cerrado · ${fmt(ot.costo||0)}</span></div>`:''}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">`;
+  if(tec&&tec.telefono)h+=`<a class="btn bs" style="flex:1;text-decoration:none;text-align:center;line-height:1.9" href="${waLink(tec.telefono,otMensajeTecnico(i))}" target="_blank">💬 Avisar técnico</a>`;
+  if(!ot.cerrado)h+=`<button class="btn bg" style="flex:1" onclick="openCerrarTrabajo('${i.id}')">✓ Cerrar trabajo</button>`;
+  else h+=`<button class="btn bo" style="flex:1" onclick="pdfCierreComparativo('${i.id}')">📄 Cierre comparativo</button>`;
+  h+=`</div>`;
+  return h;
+}
+function otMensajeTecnico(i){
+  const inm=incInmueble(i);
+  return `Hola, te comparto una orden de trabajo:\nFolio: ${i.numero||'s/f'}\nLugar: ${i.lugar||''}${inm&&inm.direccion?' ('+inm.direccion+')':''}\nProblema: ${i.descripcion||''}\n¿Me confirmas disponibilidad?`;
+}
+function openAgendarTecnico(incId){
+  const i=DB.incidentes.find(x=>x.id===incId);if(!i)return;
+  const inm=incInmueble(i);
+  const zona=inm&&inm.zona?inm.zona:null;
+  const tipoPrev=i.ot?.tipo||i.tipo||'otro';
+  modal(`<div class="ms" style="max-height:92vh"><div class="mh"></div>
+    <div class="mt2">🧰 Agendar técnico</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px">Folio ${i.numero||''} · ${i.lugar||''}</div>
+    <div class="fg"><label class="fl">Tipo de trabajo</label>
+      <select class="fi" id="ot-tipo" onchange="agSugerirTecnicos()">
+        ${Object.entries(TIPOS_MANT).map(([k,v])=>`<option value="${k}"${tipoPrev===k?' selected':''}>${v.i} ${v.n}</option>`).join('')}
+      </select></div>
+    <div class="fg"><label class="fl">Técnico ${zona?'(filtrado por zona '+(ZONAS_CRONO[zona]?.nombre||zona)+')':''}</label>
+      <select class="fi" id="ot-tec"></select>
+      <div style="font-size:10px;color:var(--dim);margin-top:4px">¿No aparece? <span style="color:var(--gold);cursor:pointer" onclick="closeM();openTecnicos()">Agrega técnicos</span></div></div>
+    <div class="fg"><label class="fl">Ficha de supervisión</label><select class="fi" id="ot-ficha"></select></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Fecha cita</label><input class="fi" type="date" id="ot-fecha" value="${i.ot?.cita_fecha||todayISO()}"></div>
+      <div class="fg"><label class="fl">Hora</label><input class="fi" type="time" id="ot-hora" value="${i.ot?.cita_hora||'10:00'}"></div>
+    </div>
+    <button class="btn bg bfu" onclick="saveOT('${incId}','${zona||''}')">Guardar orden</button>
+    <button class="btn bo bfu" style="margin-top:8px" onclick="openIncidenteDetail('${incId}')">‹ Volver</button></div>`);
+  agSugerirTecnicos(zona);
+}
+function agSugerirTecnicos(zona){
+  const tipo=document.getElementById('ot-tipo').value;
+  const zsel=document.getElementById('ot-tec');
+  let techs=DB.tecnicos.filter(t=>(t.especialidades||[]).includes(tipo));
+  if(zona)techs=techs.filter(t=>!t.zonas||!t.zonas.length||t.zonas.includes(zona));
+  if(techs.length===0)techs=DB.tecnicos.slice();
+  zsel.innerHTML=techs.length?techs.map(t=>`<option value="${t.id}">${t.nombre}${t.costo_prom?' · ~'+fmt(t.costo_prom):''}</option>`).join(''):'<option value="">— Sin técnicos —</option>';
+  // fichas sugeridas por tipo
+  const fsel=document.getElementById('ot-ficha');
+  const cats=TIPOS_MANT[tipo]?.cats||[];
+  let fichas=cats.length?FICHAS_MANT.filter(f=>cats.includes(f.cat)):FICHAS_MANT.slice();
+  fsel.innerHTML='<option value="">— Sin ficha —</option>'+FICHAS_MANT.map(f=>`<option value="${f.n}"${fichas.includes(f)&&fichas[0]===f?' selected':''}>#${f.n} ${f.titulo}</option>`).join('');
+}
+function saveOT(incId,zona){
+  const i=DB.incidentes.find(x=>x.id===incId);if(!i)return;
+  i.ot=Object.assign(i.ot||{},{
+    agendado:true,tipo:document.getElementById('ot-tipo').value,
+    tecnicoId:document.getElementById('ot-tec').value,
+    fichaN:Number(document.getElementById('ot-ficha').value)||null,
+    cita_fecha:document.getElementById('ot-fecha').value,
+    cita_hora:document.getElementById('ot-hora').value
+  });
+  if(i.ot.fichaN)i.fichaSolucion=i.ot.fichaN;
+  saveDB('incidentes');snack('✓ Orden de trabajo agendada');openIncidenteDetail(incId);
+}
+// ── Cierre de trabajo con criterios de aceptación ──
+function openCerrarTrabajo(incId){
+  const i=DB.incidentes.find(x=>x.id===incId);if(!i)return;
+  const ficha=i.ot?.fichaN?FICHAS_MANT.find(f=>f.n===i.ot.fichaN):null;
+  pendingPhotos=i.ot?.fotos_despues?[...i.ot.fotos_despues]:[];
+  const crits=ficha&&ficha.crit?ficha.crit:[];
+  modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
+    <div class="mt2">✓ Cerrar trabajo</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px">Folio ${i.numero||''}${ficha?' · Ficha #'+ficha.n+' '+ficha.titulo:''}</div>
+    <div class="fg"><label class="fl">Descripción de la solución *</label><textarea class="fi" id="cl-sol" rows="3">${i.ot?.solucion||''}</textarea></div>
+    <div class="grid2">
+      <div class="fg"><label class="fl">Costo $ *</label><input class="fi" type="number" id="cl-costo" value="${i.ot?.costo||''}"></div>
+      <div class="fg"><label class="fl">Categoría gasto</label><select class="fi" id="cl-cat">${Object.entries(CATS_GASTO).map(([k,v])=>`<option value="${k}"${k==='mantenimiento'?' selected':''}>${v.i} ${v.n}</option>`).join('')}</select></div>
+    </div>
+    <div class="fg"><label class="fl">Fotos del después</label>
+      <input type="file" accept="image/*" multiple id="cl-fotos-inp" style="display:none" onchange="handlePhotos(event,4)">
+      <div class="photo-grid" id="cl-photos-grid"></div>
+      <button class="btn bo bsm" onclick="document.getElementById('cl-fotos-inp').click()">📷 Agregar fotos</button></div>
+    ${crits.length?`<div class="fg"><label class="fl">✅ Criterios de aceptación (valida lo cumplido)</label>
+      <div style="background:var(--s1);border:1px solid #E4E9EF;border-radius:9px;padding:8px 12px">
+      ${crits.map((cr,idx)=>`<label style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;cursor:pointer;font-size:12px"><input type="checkbox" class="cl-crit" data-idx="${idx}" ${(i.ot?.criterios||[]).includes(idx)?'checked':''} style="margin-top:2px">${cr}</label>`).join('')}
+      </div></div>`:''}
+    <button class="btn bg bfu" onclick="saveCierreTrabajo('${incId}')">Cerrar y registrar gasto</button>
+    <button class="btn bo bfu" style="margin-top:8px" onclick="openIncidenteDetail('${incId}')">‹ Volver</button>
+    <div style="height:14px"></div></div>`);
+  renderPendingPhotos('cl-photos-grid');
+}
+function saveCierreTrabajo(incId){
+  const i=DB.incidentes.find(x=>x.id===incId);if(!i)return;
+  const sol=document.getElementById('cl-sol').value.trim();
+  const costo=Number(document.getElementById('cl-costo').value)||0;
+  if(!sol){snack('Describe la solución');return;}
+  const cat=document.getElementById('cl-cat').value;
+  i.ot=Object.assign(i.ot||{},{
+    cerrado:true,solucion:sol,costo,
+    fotos_despues:[...pendingPhotos],
+    criterios:Array.from(document.querySelectorAll('.cl-crit:checked')).map(x=>Number(x.dataset.idx)),
+    fecha_cierre:nowISO()
+  });
+  i.resuelto=true;i.fecha_resolucion=nowISO();i.notas_resolucion=sol;
+  // Generar gasto ligado
+  if(costo>0){
+    const inm=incInmueble(i);
+    const subcat=TIPOS_MANT[i.ot.tipo]?.subcat||'';
+    const g={id:uid(),categoria:cat,subcat,monto:costo,descripcion:'OT '+(i.numero||'')+': '+sol.slice(0,40),
+      fecha:nowISO(),propietarioId:inm?.propietarioId||'',inmueble:inm?.nombre||i.lugar||'',notas:'Generado por cierre de incidente',incidenteId:i.id,creado:nowISO()};
+    DB.gastos.push(g);i.ot.gastoId=g.id;saveDB('gastos');
+  }
+  pendingPhotos=[];saveDB('incidentes');
+  snack('✓ Trabajo cerrado'+(costo>0?' y gasto registrado':''));
+  openIncidenteDetail(incId);
+}
+
+// ── 2a: PDF del reporte + acuse WhatsApp ──
+async function pdfReporteIncidente(incId){
+  const i=DB.incidentes.find(x=>x.id===incId);if(!i)return;
+  const inm=incInmueble(i);const n=NIVELES_INC.find(x=>x.k===i.nivel)||NIVELES_INC[0];
+  const fotos=(i.fotos||[]).slice(0,4);
+  const inner=pdfEncabezado('Reporte de mantenimiento',`Folio ${i.numero||''}`)+
+    `<table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+      <tr><td style="padding:5px 8px;font-size:12px;color:#555;width:38%">Fecha</td><td style="padding:5px 8px;font-size:12px">${i.fecha?new Date(i.fecha).toLocaleString('es-MX'):''}</td></tr>
+      <tr><td style="padding:5px 8px;font-size:12px;color:#555">Inmueble / unidad</td><td style="padding:5px 8px;font-size:12px">${i.lugar||''}${inm&&inm.direccion?' — '+inm.direccion:''}</td></tr>
+      <tr><td style="padding:5px 8px;font-size:12px;color:#555">Nivel</td><td style="padding:5px 8px;font-size:12px">${n.n}</td></tr>
+    </table>
+    <div style="font-size:13px;font-weight:700;color:#0059A9;margin-bottom:4px">Descripción del problema</div>
+    <div style="font-size:13px;margin-bottom:14px">${(i.descripcion||'').replace(/</g,'&lt;')}</div>
+    ${fotos.length?`<div style="font-size:13px;font-weight:700;color:#0059A9;margin-bottom:6px">Evidencia</div><div style="display:flex;flex-wrap:wrap;gap:6px">${fotos.map(f=>`<img src="${f}" style="width:48%;border-radius:4px;border:1px solid #ddd">`).join('')}</div>`:''}
+    <div style="margin-top:28px;font-size:11px;color:#888">Acuse de recibo — su reporte quedó registrado con folio ${i.numero||''}.</div>`;
+  await pdfDesdeHTML(inner,`reporte_${(i.numero||'folio')}.pdf`);
+}
+function waAcuseInquilino(incId){
+  const i=DB.incidentes.find(x=>x.id===incId);if(!i)return;
+  const inq=i.inqId?DB.inquilinos.find(x=>x.id===i.inqId):null;
+  const txt=`✅ Tu reporte quedó registrado.\nFolio: ${i.numero||''}\nLugar: ${i.lugar||''}\nProblema: ${i.descripcion||''}\nTe mantenemos al tanto del seguimiento. — Oficina Familiar`;
+  window.open(waLink(inq?.telefono||'',txt),'_blank');
+}
+// ── 2c: PDF de cierre comparativo ──
+async function pdfCierreComparativo(incId){
+  const i=DB.incidentes.find(x=>x.id===incId);if(!i||!i.ot)return;
+  const tec=DB.tecnicos.find(x=>x.id===i.ot.tecnicoId);
+  const antes=(i.fotos||[]).slice(0,2),despues=(i.ot.fotos_despues||[]).slice(0,2);
+  const ficha=i.ot.fichaN?FICHAS_MANT.find(f=>f.n===i.ot.fichaN):null;
+  const critsOk=ficha&&ficha.crit?ficha.crit.map((cr,idx)=>`<div style="font-size:11px;padding:2px 0">${(i.ot.criterios||[]).includes(idx)?'☑':'☐'} ${cr}</div>`).join(''):'';
+  const inner=pdfEncabezado('Cierre de trabajo — comparativo',`Folio ${i.numero||''}`)+
+    `<table style="width:100%;border-collapse:collapse;table-layout:fixed"><tr>
+      <td style="width:50%;vertical-align:top;padding:8px;border:1px solid #ddd">
+        <div style="font-size:12px;font-weight:700;color:#E05C5C;margin-bottom:6px">ANTES (reportado)</div>
+        <div style="font-size:12px;margin-bottom:8px">${(i.descripcion||'').replace(/</g,'&lt;')}</div>
+        ${antes.map(f=>`<img src="${f}" style="width:100%;border-radius:4px;margin-bottom:6px;border:1px solid #ddd">`).join('')||'<div style="font-size:11px;color:#999">Sin fotos</div>'}
+      </td>
+      <td style="width:50%;vertical-align:top;padding:8px;border:1px solid #ddd">
+        <div style="font-size:12px;font-weight:700;color:#426A54;margin-bottom:6px">DESPUÉS (resuelto)</div>
+        <div style="font-size:12px;margin-bottom:8px">${(i.ot.solucion||'').replace(/</g,'&lt;')}</div>
+        ${despues.map(f=>`<img src="${f}" style="width:100%;border-radius:4px;margin-bottom:6px;border:1px solid #ddd">`).join('')||'<div style="font-size:11px;color:#999">Sin fotos</div>'}
+      </td></tr></table>
+      <table style="width:100%;margin-top:12px"><tr>
+        <td style="font-size:12px;padding:4px 8px"><b>Técnico:</b> ${tec?tec.nombre:'—'}</td>
+        <td style="font-size:12px;padding:4px 8px;text-align:right"><b>Costo:</b> ${fmt(i.ot.costo||0)}</td></tr></table>
+      ${critsOk?`<div style="margin-top:10px"><div style="font-size:12px;font-weight:700;color:#0059A9;margin-bottom:4px">Criterios de aceptación verificados</div>${critsOk}</div>`:''}`;
+  await pdfDesdeHTML(inner,`cierre_${(i.numero||'folio')}.pdf`);
+}
+
+// ═══════════ FASE 4 · REPORTES AL DUEÑO ═══════════
+// 3a · Lista inquilinaria en PDF por propietario
+function openListaInqPDFSelector(){
+  if(DB.propietarios.length===0){snack('No hay propietarios');return;}
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">📋 Lista inquilinaria (PDF)</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px">Documento por propietario con rentas, vencimientos y totales de ocupación.</div>
+    <div class="fg"><label class="fl">Propietario</label><select class="fi" id="li-prop">${DB.propietarios.map(p=>`<option value="${p.id}">${p.nombre}</option>`).join('')}</select></div>
+    <button class="btn bg bfu" onclick="const p=document.getElementById('li-prop').value;closeM();exportListaInqPDF(p)">Generar PDF →</button></div>`);
+}
+async function exportListaInqPDF(propId){
+  const prop=getPropietario(propId);
+  const inms=DB.inmuebles.filter(x=>x.propietarioId===propId).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  let rows='',totalEsp=0,totalCob=0,unidades=0,ocupadas=0;
+  inms.forEach(inm=>{
+    const tenants=DB.inquilinos.filter(t=>t.estado==='activo'&&(t.inmuebleId===inm.id||t.inmueble===inm.nombre))
+      .sort((a,b)=>(a.interior||'').localeCompare(b.interior||'',undefined,{numeric:true}));
+    const totDep=inm.total_depas||tenants.length;
+    unidades+=totDep;
+    tenants.forEach(t=>{
+      const renta=Number(t.renta||0);
+      const vac=renta<=0||/vac[íi]o/i.test(t.nombre||'');
+      if(!vac){ocupadas++;totalEsp+=renta;}
+      const pagado=isPagado(t.id,HM,HA);if(pagado)totalCob+=renta;
+      const est=getContratoEstado?getContratoEstado(t):null;
+      const venc=est&&est.vence?est.vence.toLocaleDateString('es-MX'):'—';
+      const estatus=vac?'<span style="color:#999">Vacío</span>':(pagado?'<span style="color:#426A54">Al corriente</span>':(isLate(t.id,HM,HA)?'<span style="color:#E05C5C">Vencido</span>':'<span style="color:#B8860B">Pendiente</span>'));
+      rows+=`<tr>
+        <td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:11px">${inm.nombre}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:11px">${t.interior||'—'}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:11px">${vac?'—':(t.nombre||'')}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:11px;text-align:right">${vac?'—':fmt(renta)}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:11px">${t.renovacion||'—'}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:11px">${venc}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:11px">${estatus}</td></tr>`;
+    });
+  });
+  const pend=Math.max(0,totalEsp-totalCob);
+  const ocupPct=unidades>0?Math.round(ocupadas/unidades*100):0;
+  const inner=pdfEncabezado('Lista inquilinaria',`${prop?.nombre||''} · ${MF[HM-1]} ${HA}`)+
+    `<table style="width:100%;border-collapse:collapse">
+      <thead><tr>${['Inmueble','Unidad','Inquilino','Renta','Inicio','Vence','Estatus'].map(h=>`<th style="text-align:left;padding:6px;border-bottom:2px solid #0059A9;font-size:10px;color:#0059A9">${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody></table>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:120px;background:#EDF1F6;border-radius:6px;padding:10px;text-align:center"><div style="font-size:10px;color:#555">OCUPACIÓN</div><div style="font-size:18px;font-weight:700;color:#0059A9">${ocupPct}%</div><div style="font-size:10px;color:#888">${ocupadas}/${unidades}</div></div>
+      <div style="flex:1;min-width:120px;background:#EDF1F6;border-radius:6px;padding:10px;text-align:center"><div style="font-size:10px;color:#555">BRUTO ESPERADO</div><div style="font-size:18px;font-weight:700;color:#16202E">${fmt(totalEsp)}</div></div>
+      <div style="flex:1;min-width:120px;background:#EDF1F6;border-radius:6px;padding:10px;text-align:center"><div style="font-size:10px;color:#555">COBRADO</div><div style="font-size:18px;font-weight:700;color:#426A54">${fmt(totalCob)}</div></div>
+      <div style="flex:1;min-width:120px;background:#EDF1F6;border-radius:6px;padding:10px;text-align:center"><div style="font-size:10px;color:#555">PENDIENTE</div><div style="font-size:18px;font-weight:700;color:#E05C5C">${fmt(pend)}</div></div>
+    </div>`;
+  await pdfDesdeHTML(inner,`lista_inquilinaria_${(prop?.nombre||'').replace(/\s+/g,'_')}_${HA}_${String(HM).padStart(2,'0')}.pdf`);
+}
+
+// 3d · Orden de pago en PDF (además del Excel existente)
+async function exportOrdenPagoPDF(propId){
+  propId=propId||null;
+  let marcados=DB.servicios.filter(s=>s.pagar_yo);
+  if(propId)marcados=marcados.filter(s=>s.propietarioId===propId);
+  marcados.sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')||(a.alias||'').localeCompare(b.alias||'',undefined,{numeric:true}));
+  if(marcados.length===0){snack('No hay servicios marcados');return;}
+  const prop=propId?getPropietario(propId):null;
+  let rows='',totD=0,totP=0;
+  marcados.forEach(sv=>{
+    const bal=Math.max(0,getServicioBalance(sv.id));
+    const inp=document.getElementById('op-'+sv.id);
+    const pago=inp?Number(inp.value||0):bal;
+    totD+=bal;totP+=pago;
+    rows+=`<tr>
+      <td style="padding:5px 6px;border-bottom:1px solid #eee;font-size:11px">${sv.alias||sv.inmueble||''}</td>
+      <td style="padding:5px 6px;border-bottom:1px solid #eee;font-size:11px">${sv.cuenta||''}</td>
+      <td style="padding:5px 6px;border-bottom:1px solid #eee;font-size:11px">${sv.nombre_recibo||''}</td>
+      <td style="padding:5px 6px;border-bottom:1px solid #eee;font-size:11px;text-align:right">${fmt(bal)}</td>
+      <td style="padding:5px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:right;font-weight:700">${fmt(pago)}</td></tr>`;
+  });
+  const inner=pdfEncabezado('Orden de pago',`Servicios${prop?' · '+prop.nombre:''} · ${new Date().toLocaleDateString('es-MX',{month:'long',year:'numeric'})}`)+
+    `<table style="width:100%;border-collapse:collapse">
+      <thead><tr>${['Inmueble / servicio','Cuenta','Nombre recibo','Deuda','Orden de pago'].map(h=>`<th style="text-align:left;padding:6px;border-bottom:2px solid #0059A9;font-size:10px;color:#0059A9">${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="3" style="padding:8px 6px;text-align:right;font-weight:700;font-size:12px">TOTALES</td>
+      <td style="padding:8px 6px;text-align:right;font-weight:700">${fmt(totD)}</td>
+      <td style="padding:8px 6px;text-align:right;font-weight:700;color:#0059A9">${fmt(totP)}</td></tr></tfoot></table>
+    <div style="margin-top:46px;display:flex;justify-content:space-around">
+      <div style="text-align:center"><div style="border-top:1px solid #333;width:200px;padding-top:4px;font-size:11px;color:#555">Autoriza</div></div>
+      <div style="text-align:center"><div style="border-top:1px solid #333;width:200px;padding-top:4px;font-size:11px;color:#555">Recibe</div></div>
+    </div>`;
+  await pdfDesdeHTML(inner,`orden_de_pago${prop?'_'+prop.nombre.replace(/\s+/g,'_'):''}_${todayISO()}.pdf`);
+}
+
+
 function renderRep(){
   document.getElementById('v-rep').innerHTML=`
     <div class="st">📊 Presentación ejecutiva</div>
@@ -5653,12 +6647,16 @@ function openIncidenteDetail(id){
           <div style="font-size:10px;color:var(--dim);margin-top:2px">Vincula una ficha de mantenimiento estándar</div>
         </button>`;
     })()}
+    ${renderOTBlock(i)}
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn bo" style="flex:1" onclick="pdfReporteIncidente('${i.id}')">📄 Reporte PDF</button>
+      <button class="btn bs" style="flex:1" onclick="waAcuseInquilino('${i.id}')">💬 Acuse WhatsApp</button>
+    </div>
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
       ${!i.resuelto?`<button class="btn bs bfu" onclick="marcarResuelto('${i.id}')">✓ Marcar como resuelto</button>`:`<button class="btn bo bfu" onclick="reabrirIncidente('${i.id}')">↩️ Reabrir</button>`}
     </div>
     <div style="display:flex;gap:8px;margin-top:8px">
-      <button class="btn bg" style="flex:1" onclick="genPDFIncidente('${i.id}')">📄 PDF</button>
-      <button class="btn bo" onclick="closeM();openIncidenteForm('${i.id}')">✏️</button>
+      <button class="btn bo" onclick="closeM();openIncidenteForm('${i.id}')">✏️ Editar</button>
       <button class="btn bd" onclick="delIncidente('${i.id}')">🗑️</button>
     </div></div>`);
 }
@@ -6531,9 +7529,14 @@ function inferCategoryFromDesc(desc){
   }
 }
 
+function renderSubcatOptions(cat,sel){
+  const subs=SUBCATS_GASTO[cat]||[];
+  return '<option value="">— Ninguna —</option>'+subs.map(k=>`<option value="${k}"${sel===k?' selected':''}>${presupLineLabel(k)}</option>`).join('');
+}
 function selectCat(cat){
   const inp=document.getElementById('g-cat');if(!inp)return;
   inp.value=cat;
+  const sc=document.getElementById('g-subcat');if(sc)sc.innerHTML=renderSubcatOptions(cat,'');
   document.querySelectorAll('#cat-chips .cat-chip').forEach(el=>{
     const c=CATS_GASTO[el.dataset.cat];
     if(el.dataset.cat===cat){el.classList.add('on');el.style.borderColor=c.c;el.style.background=c.c+'22';}
