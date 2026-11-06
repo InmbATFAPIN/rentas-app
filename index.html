@@ -272,7 +272,8 @@ const TAREAS_CRONO_AUTO=[
 const AUTOS_CRONO=['Ford','Vectra','Monza','Windstar'];
 const DIAS_SEM_C=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 // Estado del cronograma (persiste en DB.cronograma_estado[0])
-let CRONO={ultimaVez:{},zonasFijadas:{},incidentes_extra:[],toluca_ultima:null,cronograma:{},tareas_inm:null,tareas_auto:null};
+let CRONO={ultimaVez:{},zonasFijadas:{},incidentes_extra:[],toluca_ultima:null,cronograma:{},tareas_inm:null,tareas_auto:null,estadosAct:{}};
+let cronoDayItems=[],cronoDayF=null;
 let cronoDate=new Date();
 let cronoSub='cal';
 const NIVELES_INC=[{k:1,n:'Baja',c:'#426A54'},{k:2,n:'Media',c:'#B8860B'},{k:3,n:'Alta',c:'#E58A2C'},{k:4,n:'Crítica',c:'#E05C5C'}];
@@ -2696,12 +2697,19 @@ function exportExcelMovs(){
 // ─── Inquilinos CRUD ───────────────────────────────
 // ─── Inmuebles view (combina Inmuebles + Inquilinos por inmueble) ─────
 // ─── PROPIETARIOS (antes Inmuebles) — drill-down 3 niveles ─────
+let propSub='dir';
+function setPropSub(s){propSub=s;renderInq();}
 function renderInq(){
   if(!DB.propietarios.length){
     document.getElementById("v-inq").innerHTML=`<div class="es"><div class="ei">👥</div><div class="et">Sin propietarios<br><br>Crea uno desde Directorio</div></div>`;
     return;
   }
-  let html=`<div style="display:flex;gap:8px;margin-bottom:10px">
+  const subnav=`<div style="display:flex;gap:6px;margin-bottom:12px;background:var(--s2);padding:4px;border-radius:12px">
+    <button class="btn ${propSub==='dir'?'bg':'bo'} bsm" style="flex:1;border:${propSub==='dir'?'none':'1px solid transparent'}" onclick="setPropSub('dir')">👤 Directorio</button>
+    <button class="btn ${propSub==='cpp'?'bg':'bo'} bsm" style="flex:1;border:${propSub==='cpp'?'none':'1px solid transparent'}" onclick="setPropSub('cpp')">💸 CPP</button>
+  </div>`;
+  if(propSub==='cpp'){document.getElementById("v-inq").innerHTML=subnav+'<div id="cpp-body"></div>';renderCPP();return;}
+  let html=subnav+`<div style="display:flex;gap:8px;margin-bottom:10px">
     <input class="fi" id="search-inq" placeholder="🔍 Buscar propietario, inmueble o inquilino..." oninput="renderPropList()" style="flex:1">
   </div>
   <div class="cr" style="margin-bottom:10px">`;
@@ -2715,6 +2723,109 @@ function renderInq(){
   html+=`</div><div id="prop-list"></div>`;
   document.getElementById("v-inq").innerHTML=html;
   renderPropList();
+}
+
+// ═══════════ CPP · CUENTAS POR PAGAR ═══════════
+function cppNorm(t){return t==='cfe'?'luz':t;}
+function cppSvcProp(sv){return sv.propietarioId||((DB.inmuebles.find(i=>i.nombre===sv.inmueble)||{}).propietarioId)||'';}
+function cppDeuda(sv){
+  if(sv.deuda_manual!==undefined&&sv.deuda_manual!==null&&sv.deuda_manual!=='')return Number(sv.deuda_manual)||0;
+  return Math.max(0,getServicioBalance(sv.id));
+}
+function cppSetDeuda(id,val){
+  const sv=DB.servicios.find(s=>s.id===id);if(!sv)return;
+  sv.deuda_manual=(val===''?null:(Number(val)||0));
+  sv.fecha_actualizacion=todayISO();
+  saveDB('servicios');renderCPP();
+}
+function cppData(){
+  const out=[];
+  DB.propietarios.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).forEach(p=>{
+    const svcs=DB.servicios.filter(s=>cppSvcProp(s)===p.id&&['agua','luz','predial'].includes(cppNorm(s.tipo)));
+    if(!svcs.length)return;
+    const grupos={agua:[],luz:[],predial:[]};
+    svcs.forEach(s=>grupos[cppNorm(s.tipo)].push(s));
+    out.push({p,grupos});
+  });
+  return out;
+}
+function cppTabla(tipo,arr){
+  if(!arr.length)return '';
+  const esLuz=tipo==='luz';
+  const tot=arr.reduce((s,sv)=>s+cppDeuda(sv),0);
+  const rows=arr.slice().sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')).map(sv=>{
+    const d=cppDeuda(sv);
+    const etq=esLuz?`${sv.inmueble||'—'}${sv.alias?' · '+sv.alias:''}${sv.medidor?' · med '+sv.medidor:''}`:(sv.inmueble||'—');
+    return `<tr>
+      <td style="padding:7px 6px;font-size:11px;border-bottom:1px solid #EAEEF2">${etq}<div style="font-size:9px;color:var(--dim);margin-top:1px">${sv.cuenta?'cta '+sv.cuenta:'sin cuenta'}${sv.fecha_actualizacion?' · act '+sv.fecha_actualizacion:''}</div></td>
+      <td style="padding:7px 6px;border-bottom:1px solid #EAEEF2;text-align:right;white-space:nowrap"><span style="font-size:11px;color:var(--dim)">$</span><input type="number" value="${d||''}" placeholder="0" onchange="cppSetDeuda('${sv.id}',this.value)" style="width:80px;text-align:right;padding:5px 6px;border:1px solid #CBD5DF;border-radius:6px;font-size:12px;font-weight:600;margin-left:2px"></td>
+    </tr>`;
+  }).join('');
+  return `<div style="margin:0 0 12px">
+    <div style="font-size:12px;font-weight:700;padding:5px 2px;display:flex;justify-content:space-between"><span>${TIPOS_SVC[tipo].i} ${TIPOS_SVC[tipo].n}</span><span style="color:${tot>0?'var(--r)':'var(--g)'}">${fmt(tot)}</span></div>
+    <div style="overflow-x:auto;border:1px solid #E4E9EF;border-radius:8px"><table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--s2)"><th style="text-align:left;padding:5px 6px;font-size:9px;color:var(--dim);font-weight:700">${esLuz?'INMUEBLE · MEDIDOR':'INMUEBLE'}</th><th style="text-align:right;padding:5px 6px;font-size:9px;color:var(--dim);font-weight:700">DEUDA TOTAL</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+  </div>`;
+}
+function renderCPP(){
+  const cont=document.getElementById('cpp-body');if(!cont)return;
+  const data=cppData();
+  let html=`<div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn bg" style="flex:1" onclick="exportCPPExcel()">📊 Excel</button>
+    <button class="btn bs" style="flex:1" onclick="exportCPPPDF()">📄 PDF</button>
+  </div>
+  <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Agrupado por propietario → tipo de cuenta. Agua y predial: una fila por inmueble. Luz: una fila por medidor. Teclea la deuda total de cada cuenta y se guarda sola.</div>`;
+  if(!data.length){cont.innerHTML=html+`<div class="es"><div class="ei">💸</div><div class="et">Sin cuentas de agua, luz o predial.<br>Regístralas en cada inmueble (Directorio).</div></div>`;return;}
+  const granTotal=data.reduce((s,d)=>s+['agua','luz','predial'].reduce((ss,t)=>ss+d.grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0),0);
+  html+=`<div class="card" style="padding:11px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:var(--dim)">Deuda total general</span><span style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:${granTotal>0?'var(--r)':'var(--g)'}">${fmt(granTotal)}</span></div>`;
+  data.forEach(({p,grupos})=>{
+    const tot=['agua','luz','predial'].reduce((ss,t)=>ss+grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0);
+    const k='cpp_'+p.id;const open=expandedInm[k]===true;
+    const nCtas=grupos.agua.length+grupos.luz.length+grupos.predial.length;
+    html+=`<div style="background:var(--s1);border:1px solid #E4E9EF;border-radius:11px;margin-bottom:10px;overflow:hidden">
+      <div onclick="expandedInm['${k}']=${open?'false':'true'};renderCPP()" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0"><span class="inm-arrow ${open?'open':''}" style="color:var(--gold)">▶</span>
+          <div style="min-width:0"><div style="font-weight:700;color:var(--gold);font-size:14px">👤 ${p.nombre}</div><div style="font-size:10px;color:var(--dim)">${nCtas} cuenta(s)</div></div></div>
+        <div style="font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:${tot>0?'var(--r)':'var(--g)'};flex-shrink:0">${fmt(tot)}</div>
+      </div>
+      ${open?`<div style="padding:4px 12px 12px">${cppTabla('agua',grupos.agua)}${cppTabla('luz',grupos.luz)}${cppTabla('predial',grupos.predial)}</div>`:''}
+    </div>`;
+  });
+  cont.innerHTML=html;
+}
+function exportCPPExcel(){
+  const data=cppData();
+  const rows=[['PROPIETARIO','TIPO','INMUEBLE','ALIAS','MEDIDOR','CUENTA','NOMBRE RECIBO','DEUDA TOTAL','ACTUALIZADO']];
+  data.forEach(({p,grupos})=>['agua','luz','predial'].forEach(t=>grupos[t].slice().sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')).forEach(sv=>{
+    rows.push([p.nombre,TIPOS_SVC[t].n,sv.inmueble||'',sv.alias||'',sv.medidor||'',sv.cuenta||'',sv.nombre_recibo||'',cppDeuda(sv),sv.fecha_actualizacion||'']);
+  })));
+  if(rows.length===1){snack('Sin cuentas para exportar');return;}
+  const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:22},{wch:10},{wch:20},{wch:16},{wch:12},{wch:14},{wch:20},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb,ws,'CPP');
+  XLSX.writeFile(wb,'cuentas_por_pagar_'+todayISO()+'.xlsx');
+  snack('📊 Excel generado');
+}
+async function exportCPPPDF(){
+  const data=cppData();
+  if(!data.length){snack('Sin cuentas para exportar');return;}
+  let gran=0;
+  let h=pdfEncabezado('Cuentas por pagar (CPP)','Agua · Luz · Predial');
+  data.forEach(({p,grupos})=>{
+    const tot=['agua','luz','predial'].reduce((ss,t)=>ss+grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0);gran+=tot;
+    h+=`<h2 style="font-size:14px;margin:16px 0 4px;color:#0059A9">${p.nombre} <span style="float:right">${fmt(tot)}</span></h2>`;
+    ['agua','luz','predial'].forEach(t=>{
+      const arr=grupos[t].slice().sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||''));if(!arr.length)return;
+      h+=`<div style="font-size:12px;font-weight:bold;margin:8px 0 2px;color:#333">${TIPOS_SVC[t].n}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px">
+        <tr style="background:#EDF1F6"><th style="text-align:left;padding:4px 6px;border:1px solid #D0D8E0">Inmueble${t==='luz'?' · medidor':''}</th><th style="text-align:left;padding:4px 6px;border:1px solid #D0D8E0">Cuenta</th><th style="text-align:right;padding:4px 6px;border:1px solid #D0D8E0">Deuda</th></tr>
+        ${arr.map(sv=>`<tr><td style="padding:4px 6px;border:1px solid #D0D8E0">${sv.inmueble||'—'}${t==='luz'&&(sv.alias||sv.medidor)?' · '+(sv.alias||sv.medidor):''}</td><td style="padding:4px 6px;border:1px solid #D0D8E0">${sv.cuenta||''}</td><td style="padding:4px 6px;border:1px solid #D0D8E0;text-align:right">${fmt(cppDeuda(sv))}</td></tr>`).join('')}
+      </table>`;
+    });
+  });
+  h+=`<div style="margin-top:18px;padding:10px;background:#EDF1F6;text-align:right;font-size:15px;font-weight:bold;border-radius:6px">Deuda total general: ${fmt(gran)}</div>`;
+  await pdfDesdeHTML(h,'cuentas_por_pagar_'+todayISO()+'.pdf');
 }
 
 function renderPropList(){
@@ -4760,6 +4871,7 @@ function cronoLoad(){
   if(rec&&rec.data){try{CRONO=Object.assign(CRONO,typeof rec.data==='string'?JSON.parse(rec.data):rec.data);}catch(e){}}
   if(!CRONO.tareas_inm)CRONO.tareas_inm=JSON.parse(JSON.stringify(TAREAS_CRONO_INM));
   if(!CRONO.tareas_auto)CRONO.tareas_auto=JSON.parse(JSON.stringify(TAREAS_CRONO_AUTO));
+  if(!CRONO.estadosAct)CRONO.estadosAct={};
 }
 function cronoSave(){
   if(!DB.cronograma_estado)DB.cronograma_estado=[];
@@ -4999,6 +5111,7 @@ function renderCronoCal(){
     if(tareas.some(t=>t.tipo==='auto'))dots+=`<span style="width:6px;height:6px;border-radius:50%;background:#16A2B8;display:inline-block"></span>`;
     if(tareas.some(t=>t.tipo==='cobro'))dots+=`<span style="width:6px;height:6px;border-radius:50%;border:1px solid #E05C5C;display:inline-block"></span>`;
     if(tareas.some(t=>t.tipo==='incidente'))dots+=`<span style="width:6px;height:6px;border-radius:50%;background:#E05C5C;display:inline-block"></span>`;
+    if(Object.keys(CRONO.estadosAct||{}).some(k=>{const e=CRONO.estadosAct[k];return e&&e.moved&&e.movidaA===f;}))dots+=`<span style="width:6px;height:6px;border-radius:50%;background:#2F7CC2;display:inline-block" title="actividad reprogramada"></span>`;
     const nMant=tareas.filter(t=>t.tipo==='mant').length;
     html+=`<div onclick="cronoOpenDay('${f}')" style="background:${isToday?'#0059A922':'var(--s1)'};border:1px solid ${isToday?'var(--gold,#C9A227)':'#E4E9EF'};border-radius:7px;min-height:62px;padding:4px;cursor:pointer;display:flex;flex-direction:column;${ligero?'background-image:repeating-linear-gradient(45deg,transparent,transparent 5px,#0000000A 5px,#0000000A 10px)':''}">
       <div style="font-size:11px;font-weight:700;display:flex;justify-content:space-between">${dd.getDate()}${CRONO.zonasFijadas[f]?'<span style="font-size:8px">📌</span>':''}</div>
@@ -5045,14 +5158,38 @@ function cronoOpenDay(f){
       </div>
       ${zonaFijada?`<button class="btn bo bsm" style="width:100%;margin-top:8px" onclick="cronoQuitarZona('${f}')">Quitar zona fija</button>`:''}
     </div>`;
-  if(tareas.length===0){
+  // Lista de actividades: base del día + reprogramadas que ENTRAN a este día, con su estado
+  const EA=CRONO.estadosAct||{};
+  const display=[];
+  (tareas||[]).forEach(t=>{const k=aKey(f,t);display.push({t,k,e:EA[k],originF:f,injected:false});});
+  Object.keys(EA).forEach(k=>{const e=EA[k];if(e&&e.moved&&e.movidaA===f&&e.task){display.push({t:e.task,k,e,originF:e.movidaDe,injected:true});}});
+  cronoDayItems=display.map(x=>({k:x.k,originF:x.originF,t:x.t}));
+  cronoDayF=f;
+  if(display.length===0){
     body+=`<div class="es"><div class="ei">🌤️</div><div class="et">Sin tareas este día</div></div>`;
   }else{
-    tareas.forEach(t=>{
+    display.forEach((it,idx)=>{
+      const t=it.t,e=it.e;
       const c=t.tipo==='incidente'?'#E05C5C':t.tipo==='cobro'?'#E05C5C':t.zona==='autos'?'#16A2B8':(ZONAS_CRONO[t.zona]?ZONAS_CRONO[t.zona].color:'#6B7A8D');
-      body+=`<div style="background:var(--s1);border-radius:9px;padding:10px 12px;margin-bottom:6px;border-left:3px solid ${c}">
-        <div style="font-weight:600;font-size:13px">${t.titulo}${t.fijada?' 📌':''}</div>
+      const movedAway=e&&e.moved&&e.movidaDe===f&&!it.injected;
+      const estado=e?e.estado:null;
+      let badge='',opacity='',strike='';
+      if(movedAway){badge=`<span style="font-size:10px;color:#2F7CC2;font-weight:600">⏰ Reprogramada → ${aFechaCorta(e.movidaA)}</span>`;opacity='opacity:.55';}
+      else if(estado==='aceptada'){badge=`<span style="font-size:10px;color:var(--g);font-weight:600">✓ Aceptada</span>`;}
+      else if(estado==='denegada'){badge=`<span style="font-size:10px;color:var(--r);font-weight:600">✗ Denegada</span>`;opacity='opacity:.5';strike='text-decoration:line-through';}
+      let botones;
+      if(movedAway||estado){
+        botones=`<button class="btn bo bsm" style="flex:1" onclick="actDeshacer(${idx})">↩︎ Deshacer</button>`;
+      }else{
+        botones=`<button class="btn bsm" style="flex:1;background:#E8F5EC;color:#2E7D46;border:1px solid #BFE3CC;font-size:15px" onclick="actAceptar(${idx})">✓</button>
+          <button class="btn bsm" style="flex:1;background:#FBEAEA;color:#C0392B;border:1px solid #F1C9C9;font-size:15px" onclick="actDenegar(${idx})">✗</button>
+          <button class="btn bsm" style="flex:1;background:#E7F0FA;color:#2F7CC2;border:1px solid #C3DBF2;font-size:15px" onclick="actReprogramar(${idx})">⏰</button>`;
+      }
+      body+=`<div style="background:var(--s1);border-radius:9px;padding:10px 12px;margin-bottom:6px;border-left:3px solid ${c};${opacity}">
+        <div style="font-weight:600;font-size:13px;${strike}">${t.titulo}${t.fijada?' 📌':''}${it.injected?' <span style="font-size:9px;color:#2F7CC2">(reprogramada aquí)</span>':''}</div>
         <div style="font-size:11px;color:var(--dim);margin-top:2px">${t.detalle||''}${t.zona&&ZONAS_CRONO[t.zona]?' · '+ZONAS_CRONO[t.zona].nombre:''}</div>
+        ${badge?`<div style="margin-top:4px">${badge}</div>`:''}
+        <div style="display:flex;gap:6px;margin-top:8px">${botones}</div>
       </div>`;
     });
   }
@@ -5116,6 +5253,48 @@ function cronoExportWA(f){
 function cronoCopiarWA(){
   const ta=document.getElementById('crono-wa');ta.select();
   try{navigator.clipboard.writeText(ta.value).then(()=>snack('✓ Copiado'));}catch(e){document.execCommand('copy');snack('✓ Copiado');}
+}
+
+// ── Estado de actividades del calendario (aceptar / denegar / reprogramar) ──
+function aKey(f,t){return f+'|'+t.tipo+'|'+(t.titulo||'')+'|'+(t.inm||t.detalle||'');}
+function aFechaCorta(f){const d=cParse(f);return d.getDate()+'/'+(d.getMonth()+1);}
+function actAceptar(idx){const it=cronoDayItems[idx];if(!it)return;const e=CRONO.estadosAct[it.k]||{};e.estado='aceptada';CRONO.estadosAct[it.k]=e;cronoSave();snack('✓ Aceptada');cronoOpenDay(cronoDayF);}
+function actDenegar(idx){const it=cronoDayItems[idx];if(!it)return;const e=CRONO.estadosAct[it.k]||{};e.estado='denegada';CRONO.estadosAct[it.k]=e;cronoSave();snack('✗ Denegada');cronoOpenDay(cronoDayF);}
+function actDeshacer(idx){const it=cronoDayItems[idx];if(!it)return;delete CRONO.estadosAct[it.k];cronoSave();snack('↩︎ Restablecida');cronoOpenDay(cronoDayF);}
+function actReprogramar(idx){
+  const it=cronoDayItems[idx];if(!it)return;
+  const d1=aProxDiaZona(it.originF,it.t.zona,'esta'),d2=aProxDiaZona(it.originF,it.t.zona,'prox');
+  modal(`<div class="ms"><div class="mh"></div><div class="mt2">⏰ Reprogramar actividad</div>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:16px">${it.t.titulo}${it.t.zona&&ZONAS_CRONO[it.t.zona]?' · '+ZONAS_CRONO[it.t.zona].nombre:''}</div>
+    <button class="btn bg bfu" onclick="actMover(${idx},'esta')">📅 Más tarde esta semana<div style="font-size:10px;opacity:.85;font-weight:400">→ ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][cWd(cParse(d1))]} ${aFechaCorta(d1)}</div></button>
+    <button class="btn bg bfu" style="margin-top:8px" onclick="actMover(${idx},'prox')">📆 La próxima semana<div style="font-size:10px;opacity:.85;font-weight:400">→ ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][cWd(cParse(d2))]} ${aFechaCorta(d2)}</div></button>
+    <button class="btn bo bfu" style="margin-top:10px" onclick="cronoOpenDay('${cronoDayF}')">‹ Cancelar</button></div>`);
+}
+function actMover(idx,scope){
+  const it=cronoDayItems[idx];if(!it)return;
+  const dest=aProxDiaZona(it.originF,it.t.zona,scope);
+  const e=CRONO.estadosAct[it.k]||{};
+  e.moved=true;e.movidaDe=it.originF;e.movidaA=dest;e.estado=null;
+  e.task=JSON.parse(JSON.stringify(it.t));
+  CRONO.estadosAct[it.k]=e;cronoSave();
+  snack('⏰ Reprogramada al '+aFechaCorta(dest));
+  cronoOpenDay(cronoDayF);
+}
+// Próximo día en que "toca" la zona: esta semana (hasta el domingo) o la próxima
+function aProxDiaZona(f,zona,scope){
+  const d=cParse(f),wd=cWd(d);
+  let start,end;
+  if(scope==='esta'){start=1;end=6-wd;}
+  else{const toMon=7-wd;start=toMon;end=toMon+6;}
+  let fallback=null;
+  for(let i=start;i<=end;i++){
+    const cand=cAdd(d,i),cf=cIso(cand);
+    if(fallback===null)fallback=cf;
+    const cc=CRONO.cronograma[cMonthKey(cand)]||{};
+    if(zona&&(cc[cf]||[]).some(x=>x.zona===zona))return cf;
+  }
+  if(scope==='esta'&&end<start)return aProxDiaZona(f,zona,'prox');
+  return fallback||cIso(cAdd(d,scope==='esta'?1:7));
 }
 
 function renderCronoAutos(){
