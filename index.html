@@ -2704,11 +2704,13 @@ function renderInq(){
     document.getElementById("v-inq").innerHTML=`<div class="es"><div class="ei">👥</div><div class="et">Sin propietarios<br><br>Crea uno desde Directorio</div></div>`;
     return;
   }
-  const subnav=`<div style="display:flex;gap:6px;margin-bottom:12px;background:var(--s2);padding:4px;border-radius:12px">
-    <button class="btn ${propSub==='dir'?'bg':'bo'} bsm" style="flex:1;border:${propSub==='dir'?'none':'1px solid transparent'}" onclick="setPropSub('dir')">👤 Directorio</button>
-    <button class="btn ${propSub==='cpp'?'bg':'bo'} bsm" style="flex:1;border:${propSub==='cpp'?'none':'1px solid transparent'}" onclick="setPropSub('cpp')">💸 CPP</button>
+  const subnav=`<div style="display:flex;gap:5px;margin-bottom:12px;background:var(--s2);padding:4px;border-radius:12px">
+    <button class="btn ${propSub==='dir'?'bg':'bo'} bsm" style="flex:1;border:${propSub==='dir'?'none':'1px solid transparent'};padding:9px 6px" onclick="setPropSub('dir')">👤 Directorio</button>
+    <button class="btn ${propSub==='cpp'?'bg':'bo'} bsm" style="flex:1;border:${propSub==='cpp'?'none':'1px solid transparent'};padding:9px 6px" onclick="setPropSub('cpp')">💸 CPP</button>
+    <button class="btn ${propSub==='luz'?'bg':'bo'} bsm" style="flex:1;border:${propSub==='luz'?'none':'1px solid transparent'};padding:9px 6px" onclick="setPropSub('luz')">⚡ Luz</button>
   </div>`;
   if(propSub==='cpp'){document.getElementById("v-inq").innerHTML=subnav+'<div id="cpp-body"></div>';renderCPP();return;}
+  if(propSub==='luz'){document.getElementById("v-inq").innerHTML=subnav+'<div id="luz-body"></div>';renderLuz();return;}
   let html=subnav+`<div style="display:flex;gap:8px;margin-bottom:10px">
     <input class="fi" id="search-inq" placeholder="🔍 Buscar propietario, inmueble o inquilino..." oninput="renderPropList()" style="flex:1">
   </div>
@@ -2775,21 +2777,22 @@ function renderCPP(){
     <button class="btn bg" style="flex:1" onclick="exportCPPExcel()">📊 Excel</button>
     <button class="btn bs" style="flex:1" onclick="exportCPPPDF()">📄 PDF</button>
   </div>
-  <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Agrupado por propietario → tipo de cuenta. Agua y predial: una fila por inmueble. Luz: una fila por medidor. Teclea la deuda total de cada cuenta y se guarda sola.</div>`;
+  <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Agua y predial agrupados por propietario, una fila por inmueble. Teclea la deuda total y se guarda sola. <b>La luz vive en su pestaña ⚡.</b></div>`;
   if(!data.length){cont.innerHTML=html+`<div class="es"><div class="ei">💸</div><div class="et">Sin cuentas de agua, luz o predial.<br>Regístralas en cada inmueble (Directorio).</div></div>`;return;}
-  const granTotal=data.reduce((s,d)=>s+['agua','luz','predial'].reduce((ss,t)=>ss+d.grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0),0);
+  const granTotal=data.reduce((s,d)=>s+['agua','predial'].reduce((ss,t)=>ss+d.grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0),0);
   html+=`<div class="card" style="padding:11px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:var(--dim)">Deuda total general</span><span style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:${granTotal>0?'var(--r)':'var(--g)'}">${fmt(granTotal)}</span></div>`;
   data.forEach(({p,grupos})=>{
-    const tot=['agua','luz','predial'].reduce((ss,t)=>ss+grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0);
+    if(grupos.agua.length+grupos.predial.length===0)return;
+    const tot=['agua','predial'].reduce((ss,t)=>ss+grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0);
     const k='cpp_'+p.id;const open=expandedInm[k]===true;
-    const nCtas=grupos.agua.length+grupos.luz.length+grupos.predial.length;
+    const nCtas=grupos.agua.length+grupos.predial.length;
     html+=`<div style="background:var(--s1);border:1px solid #E4E9EF;border-radius:11px;margin-bottom:10px;overflow:hidden">
       <div onclick="expandedInm['${k}']=${open?'false':'true'};renderCPP()" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer">
         <div style="display:flex;align-items:center;gap:10px;min-width:0"><span class="inm-arrow ${open?'open':''}" style="color:var(--gold)">▶</span>
           <div style="min-width:0"><div style="font-weight:700;color:var(--gold);font-size:14px">👤 ${p.nombre}</div><div style="font-size:10px;color:var(--dim)">${nCtas} cuenta(s)</div></div></div>
         <div style="font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:${tot>0?'var(--r)':'var(--g)'};flex-shrink:0">${fmt(tot)}</div>
       </div>
-      ${open?`<div style="padding:4px 12px 12px">${cppTabla('agua',grupos.agua)}${cppTabla('luz',grupos.luz)}${cppTabla('predial',grupos.predial)}</div>`:''}
+      ${open?`<div style="padding:4px 12px 12px">${cppTabla('agua',grupos.agua)}${cppTabla('predial',grupos.predial)}</div>`:''}
     </div>`;
   });
   cont.innerHTML=html;
@@ -2797,7 +2800,7 @@ function renderCPP(){
 function exportCPPExcel(){
   const data=cppData();
   const rows=[['PROPIETARIO','TIPO','INMUEBLE','ALIAS','MEDIDOR','CUENTA','NOMBRE RECIBO','DEUDA TOTAL','ACTUALIZADO']];
-  data.forEach(({p,grupos})=>['agua','luz','predial'].forEach(t=>grupos[t].slice().sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')).forEach(sv=>{
+  data.forEach(({p,grupos})=>['agua','predial'].forEach(t=>grupos[t].slice().sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')).forEach(sv=>{
     rows.push([p.nombre,TIPOS_SVC[t].n,sv.inmueble||'',sv.alias||'',sv.medidor||'',sv.cuenta||'',sv.nombre_recibo||'',cppDeuda(sv),sv.fecha_actualizacion||'']);
   })));
   if(rows.length===1){snack('Sin cuentas para exportar');return;}
@@ -2813,9 +2816,9 @@ async function exportCPPPDF(){
   let gran=0;
   let h=pdfEncabezado('Cuentas por pagar (CPP)','Agua · Luz · Predial');
   data.forEach(({p,grupos})=>{
-    const tot=['agua','luz','predial'].reduce((ss,t)=>ss+grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0);gran+=tot;
+    const tot=['agua','predial'].reduce((ss,t)=>ss+grupos[t].reduce((x,sv)=>x+cppDeuda(sv),0),0);if(tot===0&&grupos.agua.length+grupos.predial.length===0)return;gran+=tot;
     h+=`<h2 style="font-size:14px;margin:16px 0 4px;color:#0059A9">${p.nombre} <span style="float:right">${fmt(tot)}</span></h2>`;
-    ['agua','luz','predial'].forEach(t=>{
+    ['agua','predial'].forEach(t=>{
       const arr=grupos[t].slice().sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||''));if(!arr.length)return;
       h+=`<div style="font-size:12px;font-weight:bold;margin:8px 0 2px;color:#333">${TIPOS_SVC[t].n}</div>
       <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px">
@@ -2826,6 +2829,229 @@ async function exportCPPPDF(){
   });
   h+=`<div style="margin-top:18px;padding:10px;background:#EDF1F6;text-align:right;font-size:15px;font-weight:bold;border-radius:6px">Deuda total general: ${fmt(gran)}</div>`;
   await pdfDesdeHTML(h,'cuentas_por_pagar_'+todayISO()+'.pdf');
+}
+
+// ═══════════ ⚡ LUZ (CFE) · deuda por inmueble + ODP ═══════════
+let luzSeleccion=new Set();
+function luzData(){
+  const out=[];
+  DB.propietarios.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).forEach(p=>{
+    const luces=DB.servicios.filter(s=>cppSvcProp(s)===p.id&&cppNorm(s.tipo)==='luz');
+    if(!luces.length)return;
+    const byInm={};
+    luces.forEach(sv=>{const k=sv.inmueble||'(sin inmueble)';(byInm[k]=byInm[k]||[]).push(sv);});
+    const inmuebles=Object.keys(byInm).sort().map(nombre=>{
+      const medidores=byInm[nombre].sort((a,b)=>(a.alias||a.medidor||'').localeCompare(b.alias||b.medidor||'',undefined,{numeric:true}));
+      return {nombre,medidores,total:medidores.reduce((s,sv)=>s+cppDeuda(sv),0)};
+    });
+    out.push({p,inmuebles,total:inmuebles.reduce((s,i)=>s+i.total,0)});
+  });
+  return out;
+}
+function luzDias(fISO){if(!fISO)return null;const d=cParse(fISO);const hoy=new Date();hoy.setHours(0,0,0,0);d.setHours(0,0,0,0);return Math.round((d-hoy)/86400000);}
+function luzToggle(id){if(luzSeleccion.has(id))luzSeleccion.delete(id);else luzSeleccion.add(id);renderLuz();}
+function luzToggleInm(ids){const all=ids.every(id=>luzSeleccion.has(id));ids.forEach(id=>all?luzSeleccion.delete(id):luzSeleccion.add(id));renderLuz();}
+function luzSelTotal(){let t=0;luzSeleccion.forEach(id=>{const sv=DB.servicios.find(s=>s.id===id);if(sv)t+=cppDeuda(sv);});return t;}
+function luzAllOpen(){const d=luzData();return d.length&&d.every(x=>expandedInm['luz_'+x.p.id]!==false);}
+function luzToggleAll(){const open=luzAllOpen();luzData().forEach(d=>expandedInm['luz_'+d.p.id]=open?false:true);renderLuz();}
+function odpGenerarLuz(){
+  const ids=[...luzSeleccion].filter(id=>DB.servicios.some(s=>s.id===id));
+  if(!ids.length){snack('Selecciona al menos un medidor');return;}
+  odpOverride=ids;openOrdenPago(null,true);
+}
+function renderLuz(){
+  const cont=document.getElementById('luz-body');if(!cont)return;
+  const data=luzData();
+  const gran=data.reduce((s,d)=>s+d.total,0);
+  const nSel=luzSeleccion.size,selTot=luzSelTotal();
+  let html=`<div style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="btn bs" style="flex:1" onclick="openImportCFE()">⚡ Importar recibos CFE</button>
+    ${data.length?`<button class="btn bo bsm" style="flex-shrink:0" onclick="luzToggleAll()">${luzAllOpen()?'Colapsar':'Expandir'}</button>`:''}
+  </div>
+  <div style="font-size:11px;color:var(--dim);margin-bottom:10px">Deuda de luz de todos los inmuebles, sub-agrupada por inmueble. Marca los medidores que vas a pagar y genera la orden de pago.</div>`;
+  if(!data.length){cont.innerHTML=html+`<div class="es"><div class="ei">⚡</div><div class="et">Sin medidores de luz.<br>Impórtalos desde los recibos CFE con el botón de arriba.</div></div>`;return;}
+  html+=`<div class="card" style="padding:11px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:var(--dim)">Deuda total de luz</span><span style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:${gran>0?'var(--r)':'var(--g)'}">${fmt(gran)}</span></div>`;
+  data.forEach(({p,inmuebles,total})=>{
+    const k='luz_'+p.id;const open=expandedInm[k]!==false;
+    html+=`<div style="background:var(--s1);border:1px solid #E4E9EF;border-radius:11px;margin-bottom:10px;overflow:hidden">
+      <div onclick="expandedInm['${k}']=${open?'false':'true'};renderLuz()" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer">
+        <div style="display:flex;align-items:center;gap:10px"><span class="inm-arrow ${open?'open':''}" style="color:var(--gold)">▶</span><div style="font-weight:700;color:var(--gold);font-size:14px">👤 ${p.nombre}</div></div>
+        <div style="font-family:'Playfair Display',serif;font-size:15px;font-weight:700;color:${total>0?'var(--r)':'var(--g)'}">${fmt(total)}</div></div>`;
+    if(open){
+      html+=`<div style="padding:2px 12px 12px">`;
+      inmuebles.forEach(inm=>{
+        const ids=inm.medidores.map(m=>m.id);const allSel=ids.every(id=>luzSeleccion.has(id));
+        html+=`<div style="margin:8px 0 10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 2px">
+            <label style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;cursor:pointer"><input type="checkbox" ${allSel?'checked':''} onchange='luzToggleInm(${JSON.stringify(ids)})' style="width:15px;height:15px">🏠 ${inm.nombre}</label>
+            <span style="font-size:12px;font-weight:700;color:${inm.total>0?'var(--r)':'var(--g)'}">${fmt(inm.total)}</span>
+          </div>
+          <div style="border:1px solid #E4E9EF;border-radius:8px;overflow:hidden">`;
+        inm.medidores.forEach(sv=>{
+          const d=cppDeuda(sv),sel=luzSeleccion.has(sv.id),dias=luzDias(sv.fecha_limite);
+          let badge='';
+          if(dias!==null){
+            if(dias<0)badge=` <span style="font-size:8px;background:var(--r);color:#fff;padding:1px 4px;border-radius:3px;font-weight:700">VENCIDO</span>`;
+            else if(dias<=7)badge=` <span style="font-size:8px;background:var(--y);color:#fff;padding:1px 4px;border-radius:3px;font-weight:700">${dias}d</span>`;
+          }
+          html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #EEF1F4;background:${sel?'#E7F0FA':'#fff'}">
+            <input type="checkbox" ${sel?'checked':''} onchange="luzToggle('${sv.id}')" style="width:16px;height:16px;flex-shrink:0">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:600">${sv.alias||('Medidor '+(sv.medidor||'—'))}</div>
+              <div style="font-size:9px;color:var(--dim)">${sv.no_servicio?'serv '+sv.no_servicio:(sv.cuenta?'cta '+sv.cuenta:'sin servicio')}${sv.medidor?' · med '+sv.medidor:''}${sv.fecha_limite?' · límite '+sv.fecha_limite:''}${badge}</div>
+            </div>
+            <div style="text-align:right;white-space:nowrap"><span style="font-size:10px;color:var(--dim)">$</span><input type="number" value="${d||''}" placeholder="0" onchange="cppSetDeuda('${sv.id}',this.value);renderLuz()" style="width:72px;text-align:right;padding:4px 6px;border:1px solid #CBD5DF;border-radius:6px;font-size:12px;font-weight:600"></div>
+          </div>`;
+        });
+        html+=`</div></div>`;
+      });
+      html+=`</div>`;
+    }
+    html+=`</div>`;
+  });
+  html+=`<div style="position:sticky;bottom:calc(var(--nav) + 8px);margin-top:6px;z-index:5">
+    <button class="btn bg bfu" style="box-shadow:0 4px 14px rgba(0,0,0,.18);${nSel?'':'opacity:.5'}" ${nSel?'':'disabled'} onclick="odpGenerarLuz()">🧾 Generar ODP · ${nSel} medidor(es) · ${fmt(selTot)}</button>
+  </div>`;
+  cont.innerHTML=html;
+}
+
+// ── Importador de recibos CFE (PDF → medidores de luz) ──
+let cfeRecibos=[],cfeFiles=[];
+function ensurePdfJs(){
+  return new Promise((res,rej)=>{
+    if(window.pdfjsLib){res();return;}
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=()=>{try{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}catch(e){}res();};
+    s.onerror=()=>rej(new Error('No se pudo cargar el motor de PDF (¿sin internet?)'));
+    document.head.appendChild(s);
+  });
+}
+const CFE_MESES={ENE:0,FEB:1,MAR:2,ABR:3,MAY:4,JUN:5,JUL:6,AGO:7,SEP:8,OCT:9,NOV:10,DIC:11};
+function cfeMoney(s){s=String(s).trim().replace(/[\$\s,]/g,'');if(s===''||s==='-')return 0;const n=parseFloat(s);return isNaN(n)?0:n;}
+function cfeNormStr(s){return (s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/Ñ/g,'N');}
+function cfeFecha(s){if(!s)return null;const m=s.match(/(\d{1,2})\s+([A-Z]{3})\s+(\d{4})/i);if(!m)return null;const mes=CFE_MESES[m[2].toUpperCase().slice(0,3)];if(mes===undefined)return null;return new Date(parseInt(m[3]),mes,parseInt(m[1]));}
+function cfeISO(d){return d?new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10):null;}
+async function cfeExtractText(buffer){
+  const pdf=await pdfjsLib.getDocument({data:buffer}).promise;const pags=[];
+  for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const g={};
+    tc.items.forEach(it=>{const y=Math.round(it.transform[5]);const key=Math.round(y/2)*2;(g[key]=g[key]||[]).push({x:it.transform[4],str:it.str});});
+    const ys=Object.keys(g).map(Number).sort((a,b)=>b-a);const lineas=[];
+    ys.forEach(y=>{const l=g[y].sort((a,b)=>a.x-b.x).map(o=>o.str).join(' ').replace(/\s+/g,' ').trim();if(l)lineas.push(l);});
+    pags.push(lineas);}
+  return pags;
+}
+function cfeParse(paginas){
+  const p1=paginas[0]||[],p2=paginas[1]||[];const t1=p1.join('\n'),t2=p2.join('\n');
+  let servicio='';for(const l of p1){const m=l.match(/NO\.\s*DE\s*SERVICIO\s*:\s*(\d+)/i);if(m){servicio=m[1];break;}}
+  let cuentaInterna='';for(const l of p1){const m=l.match(/CUENTA\s*:\s*([A-Z0-9]{10,})/i);if(m){cuentaInterna=m[1];break;}}
+  let total=0;for(let i=0;i<Math.min(p1.length,10);i++){const m=p1[i].match(/\$\s*([\d,]+(?:\.\d+)?)/);if(m){const v=cfeMoney(m[1]);if(v>0&&v<1000000){total=v;break;}}}
+  let limite='';const mL=t1.match(/L[ÍI]MITE\s+DE\s+PAGO\s*:\s*(\d{1,2}\s+[A-Z]{3,}\s+\d{4})/i);if(mL)limite=mL[1].toUpperCase().replace(/\s+/g,' ');
+  let corte='';const mC=t1.match(/CORTE\s+A\s+PARTIR\s*:\s*(\d{1,2}\s+[A-Z]{3,}\s+\d{4})/i);if(mC)corte=mC[1].toUpperCase().replace(/\s+/g,' ');
+  let medidor='';const mM=t1.match(/NO\.?\s*MEDIDOR\s*:?\s*([A-Z0-9\-]+)/i);if(mM)medidor=mM[1].trim();
+  let adeudos=0;const mA=t2.match(/Adeudos\s+anteriores\s*:?\s*\$?\s*([\d,]+(?:\.\d+)?)/i);if(mA)adeudos=cfeMoney(mA[1]);
+  let nombre='',nIdx=-1;
+  for(let i=0;i<Math.min(p1.length,8);i++){let ln=p1[i].trim();if(/TOTAL\s+A\s+PAGAR/i.test(ln))continue;if(/^\$/.test(ln))continue;if(/^[\d\s\$\.,]+$/.test(ln))continue;if(/NO\.\s*DE\s*SERVICIO/i.test(ln))break;const c=ln.replace(/\s*\$[\d,]+(?:\.\d+)?\s*$/,'').trim();if(c.length>=3){nombre=c;nIdx=i;break;}}
+  const dir=[];const start=nIdx>=0?nIdx+1:1;
+  for(let i=start;i<Math.min(p1.length,15);i++){let ln=p1[i].trim();if(/NO\.\s*DE\s*SERVICIO/i.test(ln))break;if(/TOTAL\s+A\s+PAGAR/i.test(ln))continue;if(!ln)continue;ln=ln.replace(/\([^)]*PESOS[^)]*\)/gi,'').trim();ln=ln.replace(/\s*\$[\d,]+(?:\.\d+)?\s*/g,' ').replace(/\s+/g,' ').trim();if(ln)dir.push(ln);}
+  const direccion=dir.slice(0,4).join(' / ').replace(/\s+/g,' ').trim();
+  return {servicio,cuentaInterna,medidor,nombre,direccion,total,adeudos,cantidadTotal:total+adeudos,limite,limiteISO:cfeISO(cfeFecha(limite)),corteISO:cfeISO(cfeFecha(corte))};
+}
+function cfeMatchInmueble(dir){
+  const n=cfeNormStr(dir);let best=null,bestLen=0;
+  DB.inmuebles.forEach(im=>{
+    const cands=[im.nombre,...((im.aliases_cfe||[])),...((im.aliases||[]))].filter(Boolean);
+    cands.forEach(c=>{const cn=cfeNormStr(c);if(cn&&cn.length>=3&&n.includes(cn)&&cn.length>bestLen){best=im.nombre;bestLen=cn.length;}});
+  });
+  return best;
+}
+function cfeAsignarMatch(r){
+  let sv=null;
+  if(r.servicio)sv=DB.servicios.find(s=>cppNorm(s.tipo)==='luz'&&(s.no_servicio===r.servicio||s.cuenta===r.servicio));
+  if(!sv&&r.medidor)sv=DB.servicios.find(s=>cppNorm(s.tipo)==='luz'&&s.medidor&&s.medidor===r.medidor);
+  if(sv){r.match=sv.id;r.destino='';r.inmueble=sv.inmueble;}
+  else{const inm=cfeMatchInmueble(r.direccion);r.match='';r.destino=inm?'new:'+inm:'';r.inmueble=inm||'';}
+}
+function openImportCFE(){
+  cfeRecibos=[];cfeFiles=[];
+  modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
+    <div class="mt2">⚡ Importar recibos CFE</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px">Sube los PDFs de los recibos de luz. Se extrae la deuda total y la fecha límite y se asignan a tus medidores por número de servicio. Los que no existan se crean solos bajo su inmueble (puedes reasignar antes de guardar).</div>
+    <label class="btn bo bfu" style="cursor:pointer;margin-bottom:8px">📎 Elegir PDFs<input type="file" id="cfe-files" accept="application/pdf,.pdf" multiple style="display:none" onchange="cfeArchivosElegidos(this.files)"></label>
+    <div id="cfe-filelist" style="font-size:11px;color:var(--dim);margin-bottom:8px"></div>
+    <button class="btn bs bfu" id="cfe-proc" disabled onclick="cfeProcesar()">Procesar</button>
+    <div id="cfe-status" style="font-size:11px;color:var(--dim);margin-top:8px"></div>
+    <div id="cfe-result" style="margin-top:10px"></div>
+    <button class="btn bo bfu" style="margin-top:10px" onclick="closeM()">Cerrar</button>
+    <div style="height:10px"></div></div>`);
+}
+function cfeArchivosElegidos(files){
+  cfeFiles=[...files].filter(f=>f.name.toLowerCase().endsWith('.pdf'));
+  const fl=document.getElementById('cfe-filelist');if(fl)fl.textContent=cfeFiles.length?cfeFiles.length+' PDF(s) listos':'';
+  const b=document.getElementById('cfe-proc');if(b)b.disabled=!cfeFiles.length;
+}
+async function cfeProcesar(){
+  const st=document.getElementById('cfe-status'),btn=document.getElementById('cfe-proc');
+  btn.disabled=true;st.textContent='Cargando motor de PDF…';
+  try{await ensurePdfJs();}catch(e){st.innerHTML='<span style="color:var(--r)">'+e.message+'</span>';btn.disabled=false;return;}
+  cfeRecibos=[];
+  for(let i=0;i<cfeFiles.length;i++){
+    const f=cfeFiles[i];st.textContent=`Procesando ${i+1}/${cfeFiles.length}: ${f.name}`;
+    try{const buf=await f.arrayBuffer();const pags=await cfeExtractText(buf);const r=cfeParse(pags);r.archivo=f.name;cfeAsignarMatch(r);cfeRecibos.push(r);}
+    catch(e){cfeRecibos.push({archivo:f.name,error:e.message});}
+  }
+  const okN=cfeRecibos.filter(r=>!r.error).length;
+  st.textContent=`✓ ${okN} recibo(s) leídos de ${cfeFiles.length}`;
+  cfeRenderResultados();
+}
+function cfeDestinoSelect(idx){
+  const r=cfeRecibos[idx];
+  const luces=DB.servicios.filter(s=>cppNorm(s.tipo)==='luz');
+  let opts=`<option value="">— sin asignar —</option><optgroup label="Asignar a medidor existente">`;
+  luces.forEach(sv=>{opts+=`<option value="id:${sv.id}" ${r.match===sv.id?'selected':''}>${(sv.inmueble||'—')} · ${(sv.alias||sv.medidor||sv.cuenta||'medidor')}</option>`;});
+  opts+=`</optgroup><optgroup label="Crear nuevo medidor en">`;
+  DB.inmuebles.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).forEach(im=>{const val='new:'+im.nombre;opts+=`<option value="${val}" ${(!r.match&&r.destino===val)?'selected':''}>➕ ${im.nombre}</option>`;});
+  opts+=`</optgroup>`;
+  return `<select onchange="cfeSetDestino(${idx},this.value)" style="width:100%;font-size:11px;padding:5px;border:1px solid #CBD5DF;border-radius:6px">${opts}</select>`;
+}
+function cfeSetDestino(idx,val){const r=cfeRecibos[idx];if(val.indexOf('id:')===0){r.match=val.slice(3);r.destino='';}else if(val.indexOf('new:')===0){r.match='';r.destino=val;}else{r.match='';r.destino='';}}
+function cfeRenderResultados(){
+  const el=document.getElementById('cfe-result');if(!el)return;
+  const ok=cfeRecibos.filter(r=>!r.error);
+  const errs=cfeRecibos.filter(r=>r.error);
+  if(!ok.length){el.innerHTML='<div style="font-size:12px;color:var(--r)">No se pudo leer ningún recibo.</div>';return;}
+  const rows=ok.map(r=>{const i=cfeRecibos.indexOf(r);return `<tr style="border-bottom:1px solid #EAEEF2">
+    <td style="padding:5px 4px;font-size:10px">${r.archivo}<div style="color:var(--dim);font-size:9px">serv ${r.servicio||'—'} · med ${r.medidor||'—'}</div></td>
+    <td style="padding:5px 4px;text-align:right;font-size:11px;font-weight:600;white-space:nowrap">${fmt(r.cantidadTotal)}<div style="color:var(--dim);font-size:9px;font-weight:400">${r.limite||'sin límite'}</div></td>
+    <td style="padding:5px 4px;min-width:160px">${cfeDestinoSelect(i)}</td>
+  </tr>`;}).join('');
+  el.innerHTML=`<div style="font-size:11px;color:var(--dim);margin-bottom:6px">Revisa el destino de cada recibo y guarda.${errs.length?` <span style="color:var(--r)">${errs.length} no se pudieron leer.</span>`:''}</div>
+    <div style="overflow-x:auto;border:1px solid #E4E9EF;border-radius:8px"><table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--s2)"><th style="text-align:left;padding:5px 4px;font-size:9px;color:var(--dim)">RECIBO</th><th style="text-align:right;padding:5px 4px;font-size:9px;color:var(--dim)">DEUDA</th><th style="text-align:left;padding:5px 4px;font-size:9px;color:var(--dim)">DESTINO</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <button class="btn bg bfu" style="margin-top:10px" onclick="cfeGuardar()">💾 Guardar ${ok.length} recibo(s)</button>`;
+}
+function cfeGuardar(){
+  let upd=0,creados=0,sinAsignar=0;
+  cfeRecibos.filter(r=>!r.error).forEach(r=>{
+    let sv=null;
+    if(r.match)sv=DB.servicios.find(s=>s.id===r.match);
+    else if(r.destino&&r.destino.indexOf('new:')===0){
+      const inm=r.destino.slice(4);
+      sv={id:uid(),tipo:'luz',inmueble:inm,propietarioId:(DB.inmuebles.find(i=>i.nombre===inm)||{}).propietarioId||'',alias:'Medidor '+(r.medidor||'nuevo'),medidor:r.medidor||'',cuenta:r.servicio||'',nombre_recibo:r.nombre||'',pagar_yo:false};
+      DB.servicios.push(sv);creados++;
+    }
+    if(!sv){sinAsignar++;return;}
+    sv.no_servicio=r.servicio||sv.no_servicio||'';
+    if(!sv.medidor&&r.medidor)sv.medidor=r.medidor;
+    if(!sv.cuenta&&r.servicio)sv.cuenta=r.servicio;
+    sv.deuda_manual=r.cantidadTotal;sv.recibo_actual=r.total;sv.adeudos_anteriores=r.adeudos;
+    sv.fecha_limite=r.limiteISO||'';sv.fecha_actualizacion=todayISO();
+    if(r.match)upd++;
+  });
+  saveDB('servicios');closeM();
+  snack(`✓ ${upd} actualizados · ${creados} nuevos${sinAsignar?' · '+sinAsignar+' sin asignar':''}`);
+  renderLuz();
 }
 
 function renderPropList(){
@@ -3456,9 +3682,11 @@ function toggleServicioPagar(svcId){
 }
 
 // ── ORDEN DE PAGO (Excel) — servicios marcados "me toca pagar" ──
-function openOrdenPago(propId){
-  // Todos los servicios marcados, opcionalmente filtrados por propietario
-  let marcados=DB.servicios.filter(s=>s.pagar_yo);
+let odpOverride=null; // selección explícita de medidores (desde ⚡ Luz); null = usar pagar_yo
+function openOrdenPago(propId,fromOverride){
+  if(!fromOverride)odpOverride=null;
+  // Servicios: selección explícita si viene de Luz, si no los marcados pagar_yo
+  let marcados=odpOverride?DB.servicios.filter(s=>odpOverride.includes(s.id)):DB.servicios.filter(s=>s.pagar_yo);
   if(propId)marcados=marcados.filter(s=>s.propietarioId===propId);
   marcados.sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')||(a.alias||'').localeCompare(b.alias||'',undefined,{numeric:true}));
   const propOpts=DB.propietarios.map(p=>`<option value="${p.id}"${propId===p.id?' selected':''}>${p.nombre}</option>`).join('');
@@ -3466,7 +3694,7 @@ function openOrdenPago(propId){
     modal(`<div class="ms"><div class="mh"></div>
       <div class="mt2">🧾 Orden de pago</div>
       <div class="fg"><label class="fl">Propietario</label>
-        <select class="fi" id="op-prop" onchange="openOrdenPago(this.value||null)"><option value="">— Todos —</option>${propOpts}</select></div>
+        <select class="fi" id="op-prop" onchange="openOrdenPago(this.value||null,${!!odpOverride})"><option value="">— Todos —</option>${propOpts}</select></div>
       <div class="es"><div class="ei">☑️</div><div class="et">Ningún servicio marcado como "me toca pagar"</div>
       <div style="font-size:12px;color:var(--dim);margin-top:10px">Ve a la ficha de un inmueble → ⚡ Captura rápida y marca la casilla 💰 de los servicios que te corresponde pagar.</div></div>
       <button class="btn bo bfu" style="margin-top:10px" onclick="closeM()">Cerrar</button></div>`);
@@ -3492,7 +3720,7 @@ function openOrdenPago(propId){
     <div class="mt2">🧾 Orden de pago</div>
     <div style="font-size:11px;color:var(--dim);margin-bottom:10px">${marcados.length} servicio(s) marcados. La columna <b>Orden de pago</b> viene con la deuda; bájala si vas a pagar menos. Los que dejes en 0 salen como referencia.</div>
     <div class="fg" style="margin-bottom:10px"><label class="fl">Propietario</label>
-      <select class="fi" id="op-prop" onchange="openOrdenPago(this.value||null)"><option value="">— Todos —</option>${propOpts}</select></div>
+      <select class="fi" id="op-prop" onchange="openOrdenPago(this.value||null,${!!odpOverride})"><option value="">— Todos —</option>${propOpts}</select></div>
     <div style="overflow-x:auto;border:1px solid #E6EBF0;border-radius:9px">
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="background:var(--s2)">
@@ -3529,7 +3757,7 @@ function ordenPagoTotales(){
 function exportOrdenPagoExcel(propId){
   try{
     propId=propId||null;
-    let marcados=DB.servicios.filter(s=>s.pagar_yo);
+    let marcados=odpOverride?DB.servicios.filter(s=>odpOverride.includes(s.id)):DB.servicios.filter(s=>s.pagar_yo);
     if(propId)marcados=marcados.filter(s=>s.propietarioId===propId);
     marcados.sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')||(a.alias||'').localeCompare(b.alias||'',undefined,{numeric:true}));
     if(marcados.length===0){snack('No hay servicios marcados');return;}
@@ -6299,7 +6527,7 @@ async function exportListaInqPDF(propId){
 // 3d · Orden de pago en PDF (además del Excel existente)
 async function exportOrdenPagoPDF(propId){
   propId=propId||null;
-  let marcados=DB.servicios.filter(s=>s.pagar_yo);
+  let marcados=odpOverride?DB.servicios.filter(s=>odpOverride.includes(s.id)):DB.servicios.filter(s=>s.pagar_yo);
   if(propId)marcados=marcados.filter(s=>s.propietarioId===propId);
   marcados.sort((a,b)=>(a.inmueble||'').localeCompare(b.inmueble||'')||(a.alias||'').localeCompare(b.alias||'',undefined,{numeric:true}));
   if(marcados.length===0){snack('No hay servicios marcados');return;}
