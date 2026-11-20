@@ -174,7 +174,7 @@ textarea.fi{resize:vertical;min-height:60px}
 .fab svg{stroke:#000;stroke-width:3.2;stroke-linecap:round}
 .chip-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .cat-chip{padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;background:var(--s2);color:#44515F;border:2px solid #CBD5DF;flex-shrink:0;transition:all .15s;user-select:none}
-.cat-chip.on{color:#fff}
+.cat-chip.on{color:var(--txt);font-weight:700}
 .cat-chip:active{transform:scale(.95)}
 .quick-btn{background:var(--s1);border:1px solid #CBD5DF;color:var(--txt);border-radius:12px;cursor:pointer;transition:all .15s}
 .quick-btn:active{transform:scale(.96);background:var(--s2)}
@@ -581,7 +581,9 @@ async function cloudSaveNow(k) {
 // ─── Storage ───────────────────────────────────────────
 function loadDB(){
   let firstRun=true;
-  ["inquilinos","pagos","servicios","gastos","obras","incidentes","otros_ingresos","inmuebles","inspecciones","recibos_servicios","pagos_servicios","bitacora","carteras","propietarios"].forEach(k=>{
+  // Todas las colecciones declaradas en DB (antes era una lista fija que dejaba fuera
+  // presupuestos, técnicos, órdenes de pago, cronograma, etc. → se perdían al recargar)
+  Object.keys(DB).forEach(k=>{
     try{const v=localStorage.getItem("rentas_"+k);if(v){DB[k]=JSON.parse(v);if(k==="inquilinos"&&DB[k].length>0)firstRun=false;}}catch(e){}
   });
   // Migration: rename propiedad -> inmueble in servicios
@@ -1437,6 +1439,7 @@ function renderSubGastos(){
 }
 
 // ═══════════ SUBSECCIÓN: INCIDENTES (mantenimiento) ═══════════
+let incTab='incidentes',obraFiltroInm='';
 function renderSubIncidentes(){
   let incs=DB.incidentes.slice();
   if(incFilter==='abiertos')incs=incs.filter(i=>!i.resuelto);
@@ -1458,8 +1461,12 @@ function renderSubIncidentes(){
       <div style="flex:1"><div style="font-weight:700;font-size:13px">Técnicos de confianza</div>
       <div style="font-size:10px;color:var(--dim);margin-top:2px">Catálogo por especialidad y zona para agendar órdenes de trabajo</div></div></div>
     </button>
-    <div class="st">🚨 Reportes de incidentes</div>
-    <div class="cr" style="margin-bottom:10px">
+    <div style="display:flex;gap:4px;background:var(--s2);padding:3px;border-radius:11px;margin-bottom:12px">
+      ${[['incidentes','🚨 Incidentes',nAb],['obras','🔨 Obras',DB.obras.filter(o=>typeof inCartera!=='function'||inCartera(o)).length],['inspecciones','🏠 Inspecciones',DB.inspecciones.filter(o=>typeof inCartera!=='function'||inCartera(o)).length]].map(([k,t,n])=>`<button class="btn ${incTab===k?'bg':'bo'} bsm" style="flex:1;border:${incTab===k?'none':'1px solid transparent'};padding:8px 4px;font-size:11px" onclick="incTab='${k}';renderCon()">${t}${n?` <span style="opacity:.75">(${n})</span>`:''}</button>`).join('')}
+    </div>`;
+  if(incTab==='obras'){html+=renderListaObras();document.getElementById("gest-body").innerHTML=html;return;}
+  if(incTab==='inspecciones'){html+=renderListaInspecciones();document.getElementById("gest-body").innerHTML=html;return;}
+  html+=`<div class="cr" style="margin-bottom:10px">
       <span class="chip${incFilter==='abiertos'?' on':''}" onclick="incFilter='abiertos';renderCon()">Abiertos (${nAb})</span>
       <span class="chip${incFilter==='resueltos'?' on':''}" onclick="incFilter='resueltos';renderCon()">Resueltos</span>
       <span class="chip${incFilter==='todos'?' on':''}" onclick="incFilter='todos';renderCon()">Todos</span>
@@ -1481,6 +1488,58 @@ function renderSubIncidentes(){
     });
   }
   document.getElementById("gest-body").innerHTML=html;
+}
+
+// Botonera compacta de acciones para reportes
+function accBtns(arr){return `<div style="display:flex;gap:6px;margin-top:8px">${arr.map(([ico,txt,fn,cls])=>`<button class="btn ${cls||'bo'} bsm" style="flex:${txt?1:'0 0 auto'};padding:6px 8px;font-size:11px" onclick="event.stopPropagation();${fn}">${ico}${txt?' '+txt:''}</button>`).join('')}</div>`;}
+function renderListaObras(){
+  let obras=DB.obras.filter(o=>typeof inCartera!=='function'||inCartera(o));
+  const inms=[...new Set(obras.map(o=>o.inmueble).filter(Boolean))].sort();
+  if(obraFiltroInm)obras=obras.filter(o=>o.inmueble===obraFiltroInm);
+  obras.sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+  const total=obras.reduce((s,o)=>s+Number(o.costo||0),0);
+  let h=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+    <select class="fi" style="flex:1;padding:8px 10px;font-size:12px" onchange="obraFiltroInm=this.value;renderCon()"><option value="">🏢 Todos los inmuebles</option>${inms.map(n=>`<option value="${n.replace(/"/g,'&quot;')}"${n===obraFiltroInm?' selected':''}>${n}</option>`).join('')}</select>
+    <div style="font-size:11px;color:var(--dim);text-align:right;flex-shrink:0">${obras.length} reporte(s)<br><b style="color:var(--txt)">${fmt(total)}</b></div>
+  </div>`;
+  if(!obras.length)return h+`<div class="es"><div class="ei">🔨</div><div class="et">Sin reportes de obra${obraFiltroInm?' en este inmueble':''}</div></div>`;
+  obras.forEach(o=>{
+    const t=TIPOS_OBRA[o.tipo]||TIPOS_OBRA.otros;
+    const f=o.fecha?new Date(o.fecha).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'2-digit'}):'';
+    h+=`<div style="background:var(--s1);border:1px solid #E4E9EF;border-left:3px solid var(--gold);border-radius:9px;padding:10px 12px;margin-bottom:7px">
+      <div onclick="openObraDetail('${o.id}')" style="cursor:pointer;display:flex;justify-content:space-between;gap:8px">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:12.5px;font-weight:600">${t.i} ${t.n} · ${o.inmueble||'—'}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${f}${o.trabajador?' · 👷 '+o.trabajador:''}${o.fotos&&o.fotos.length?' · 📷 '+o.fotos.length:''}</div>
+          ${o.descripcion?`<div style="font-size:11px;color:var(--dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(o.descripcion).slice(0,90)}</div>`:''}
+        </div>
+        <div style="font-weight:700;font-size:13px;flex-shrink:0">${fmt(o.costo)}</div>
+      </div>
+      ${accBtns([['👁','Ver',`openObraDetail('${o.id}')`],['📄','PDF',`genPDFObra('${o.id}')`],['✏️','Editar',`openObraForm('${o.id}')`],['🗑️','',`delObra('${o.id}')`,'bd']])}
+    </div>`;
+  });
+  return h;
+}
+function renderListaInspecciones(){
+  const ins=DB.inspecciones.filter(o=>typeof inCartera!=='function'||inCartera(o)).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+  let h=`<button class="btn bo bfu bsm" style="margin-bottom:10px" onclick="genPDFInspeccionVacia()">🖨️ Formato de inspección en blanco (PDF)</button>`;
+  if(!ins.length)return h+`<div class="es"><div class="ei">🏠</div><div class="et">Sin inspecciones registradas</div></div>`;
+  ins.forEach(x=>{
+    const p=Number(x.porcentaje||0),c=p>=80?'#426A54':p>=60?'#B8860B':p>=40?'#E58A2C':'#E05C5C';
+    const inq=x.inquilino_id?DB.inquilinos.find(t=>t.id===x.inquilino_id):null;
+    const f=x.fecha?new Date(x.fecha+(String(x.fecha).length===10?'T12:00':'')).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'2-digit'}):'';
+    h+=`<div style="background:var(--s1);border:1px solid #E4E9EF;border-left:3px solid ${c};border-radius:9px;padding:10px 12px;margin-bottom:7px">
+      <div onclick="viewInspeccion('${x.id}')" style="cursor:pointer;display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:12.5px;font-weight:600">🏠 ${x.inmueble||'—'}${inq?' · '+inq.nombre:''}</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${f}${x.inspector?' · '+x.inspector:''}${x.fotos&&x.fotos.length?' · 📷 '+x.fotos.length:''}</div>
+        </div>
+        <span class="bge" style="background:${c}22;color:${c};border:1px solid ${c}55;font-weight:700;flex-shrink:0">${p.toFixed(0)}%</span>
+      </div>
+      ${accBtns([['👁','Ver',`viewInspeccion('${x.id}')`],['📄','PDF',`genPDFInspeccion('${x.id}')`],['✏️','Editar',`openInspeccionForm('${x.id}')`],['🗑️','',`delInspeccion('${x.id}')`,'bd']])}
+    </div>`;
+  });
+  return h;
 }
 
 // ═══════════ SUBSECCIÓN: PM (operación de campo + decisiones) ═══════════
@@ -1509,7 +1568,7 @@ function renderCobranzaSemaforo(){
     const inm=DB.inmuebles.find(x=>x.id===t.inmuebleId||x.nombre===t.inmueble);
     const z=inm&&inm.zona&&ZONAS_CRONO[inm.zona]?inm.zona:null;
     const dias=diasVencido(t.id,HM,HA);
-    const rec={nombre:t.nombre,inmueble:t.inmueble,dias,monto:Number(t.renta||0)};
+    const rec={id:t.id,nombre:t.nombre,inmueble:t.inmueble,dias,monto:Number(t.renta||0)};
     const bucket=z?zonas[z]:sinZona;
     bucket.n++;bucket.monto+=rec.monto;bucket.maxDias=Math.max(bucket.maxDias,dias);bucket.inq.push(rec);
   });
@@ -1538,9 +1597,10 @@ function renderCobranzaSemaforo(){
         </div>
         <span class="bge" style="background:${col}22;color:${col};border:1px solid ${col}55;font-weight:700;flex-shrink:0">${etiqueta}</span>
       </div>
-      ${open?`<div style="padding:0 13px 10px">${x.inq.map(q=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #EAEEF2;font-size:12px">
-        <span style="flex:1;min-width:0">${q.nombre} <span style="color:var(--dim)">· ${q.inmueble||''}</span></span>
-        <span style="flex-shrink:0;color:${q.dias>=2?'#426A54':'#B8860B'};font-weight:600">${q.dias}d · ${fmt(q.monto)}</span></div>`).join('')}</div>`:''}
+      ${open?`<div style="padding:0 13px 10px">${x.inq.map(q=>`<div onclick="openDetDesde('${q.id}','pm')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #EAEEF2;font-size:12px;cursor:pointer">
+        <span style="flex:1;min-width:0"><span style="color:var(--gold);font-weight:600;text-decoration:underline;text-underline-offset:2px">${q.nombre}</span> <span style="color:var(--dim)">· ${q.inmueble||''}</span></span>
+        <span style="flex-shrink:0;color:${q.dias>=2?'#426A54':'#B8860B'};font-weight:600">${q.dias}d · ${fmt(q.monto)}</span>
+        <span style="flex-shrink:0;color:var(--dim);font-size:13px">›</span></div>`).join('')}</div>`:''}
     </div>`;
   });
   if(sinZona.n>0){
@@ -2249,6 +2309,13 @@ function openAddGasto(id,prefill){
   const descriptions=[...new Set(DB.gastos.map(x=>x.descripcion).filter(Boolean))].slice(0,30);
   modal(`<div class="ms"><div class="mh"></div>
     <div class="mt2">💸 ${id?'Editar':'Nuevo'} Gasto</div>
+    ${!id?`<div style="margin-bottom:14px">
+      <div style="display:flex;gap:8px">
+        <label class="btn bo" style="flex:1;cursor:pointer;border-style:dashed;padding:11px 6px;font-size:12px">📷 Foto del ticket<input type="file" accept="image/*" capture="environment" style="display:none" onchange="leerTicketGasto(this.files[0]);this.value=''"></label>
+        <label class="btn bo" style="flex:1;cursor:pointer;border-style:dashed;padding:11px 6px;font-size:12px">🖼️ Desde galería<input type="file" accept="image/*" style="display:none" onchange="leerTicketGasto(this.files[0]);this.value=''"></label>
+      </div>
+      <div id="ticket-status" style="font-size:10.5px;color:var(--dim);margin-top:6px;line-height:1.35">Lee el ticket y llena monto, fecha, proveedor y categoría por ti. La foto se procesa en tu dispositivo.</div>
+    </div>`:''}
 
     <div class="fg">
       <label class="fl">1. Categoría *</label>
@@ -3233,7 +3300,10 @@ function tileH(t){
     </div></div>`;
 }
 
-function openDet(id){detTenant=DB.inquilinos.find(i=>i.id===id);if(detTenant)go("det");}
+let detReturn=null; // a dónde regresa el botón Volver del perfil ('pm' = Gestión › PM)
+function openDet(id){detReturn=null;detTenant=DB.inquilinos.find(i=>i.id===id);if(detTenant)go("det");}
+function openDetDesde(id,origen){detTenant=DB.inquilinos.find(i=>i.id===id);if(!detTenant)return;detReturn=origen;go("det");window.scrollTo(0,0);}
+function detVolver(){const r=detReturn;detReturn=null;detTenant=null;if(r==='pm'){gestSub='pm';go('con');}else go('inq');}
 function renderDet(){
   const t=detTenant;if(!t){document.getElementById("v-det").innerHTML="";return;}
   const pagosT=DB.pagos.filter(p=>p.iid===t.id&&p.pagado).sort((a,b)=>b.anio-a.anio||b.mes-a.mes);
@@ -3244,7 +3314,7 @@ function renderDet(){
     return`<div style="aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:9px;font-size:10px;font-weight:600;cursor:pointer;background:var(--s2);color:var(--dim);border:1px solid #CBD5DF;${bg}" onclick="${m<=HM?`confirmTogglePago('${t.id}',${m},${HA})`:''}">${mn}<span style="font-size:11px;margin-top:2px">${paid?'✓':late?'✗':''}</span></div>`;
   }).join("");
   document.getElementById("v-det").innerHTML=`
-    <button class="bk" onclick="go('inq')">← Volver</button>
+    <button class="bk" onclick="detVolver()">← ${detReturn==='pm'?'Volver a PM · cobranza':'Volver'}</button>
     <div class="card gd" style="text-align:center;padding:18px 14px">
       <div class="av" style="margin:0 auto 10px;width:54px;height:54px;font-size:21px">${ini(t.nombre)}</div>
       <div style="font-family:'Playfair Display',serif;font-size:18px">${t.nombre}</div>
@@ -6092,80 +6162,346 @@ const SUBCATS_GASTO={
 };
 function presupLineLabel(k){for(const s of PRESUP_SECCIONES)for(const l of s.lineas)if(l.k===k)return l.l;return k;}
 
-let presupCtx={propId:null,anio:null,mes:null};
-function getPresupuesto(propId,anio,mes){
-  let d=DB.presupuestos.find(x=>x.propietarioId===propId&&x.anio===anio&&x.mes===mes);
-  if(!d){d={id:uid(),propietarioId:propId,anio,mes,lineas:{},creado:nowISO()};DB.presupuestos.push(d);}
+// ═══════════ PRESUPUESTO · hoja anual tipo Excel + detalle mensual ═══════════
+// Modelo: DB.presupuestos = [{id, propietarioId, anio, mes(0-11), lineas:{clave:monto}, creado}]
+// - Un registro por propietario y mes. Se crea al primer dato que tecleas (no al solo mirar).
+// - Al crearse congela el ingreso esperado (num_deptos, renta_mensual) de ese momento.
+let presupCtx={propId:null,anio:null,mes:null};           // detalle mensual abierto
+let presupHoja={propId:null,anio:null,modo:'presup'};     // hoja anual: modo presup | real | dif
+const PRESUP_KEYS_INGRESO=['num_deptos','renta_mensual','ingreso_estimado','ganancia_op','ganancia_bruta','ganancia_final'];
+const PRESUP_AUTO_KEYS=['num_deptos','renta_mensual'];
+function presupEditKeys(){return PRESUP_SECCIONES.flatMap(s=>s.lineas.filter(l=>l.tipo==='edit').map(l=>l.k));}
+
+function findPresupuesto(propId,anio,mes){return DB.presupuestos.find(x=>x.propietarioId===propId&&x.anio===anio&&x.mes===mes)||null;}
+function ensurePresupuesto(propId,anio,mes){
+  let d=findPresupuesto(propId,anio,mes);
+  if(!d){
+    const ing=presupIngresos(propId);
+    d={id:uid(),propietarioId:propId,anio,mes,lineas:{num_deptos:ing.deptos,renta_mensual:ing.renta},creado:nowISO()};
+    DB.presupuestos.push(d);
+  }
   if(!d.lineas)d.lineas={};
   return d;
 }
+function getPresupuesto(propId,anio,mes){return ensurePresupuesto(propId,anio,mes);} // compat
+function presupTieneDatos(d){return !!(d&&d.lineas&&presupEditKeys().some(k=>Number(d.lineas[k]||0)!==0));}
+function presupPrevMes(a,m){return m===0?[a-1,11]:[a,m-1];}
+function presupNextMes(a,m){return m===11?[a+1,0]:[a,m+1];}
+
 function presupIngresos(propId){
   const act=DB.inquilinos.filter(t=>t.estado==='activo'&&t.propietarioId===propId&&Number(t.renta||0)>0);
   return{deptos:act.length,renta:act.reduce((s,t)=>s+Number(t.renta||0),0)};
 }
-function gastoRealLinea(propId,anio,mes,lineKey){
-  return DB.gastos.filter(g=>g.propietarioId===propId&&g.subcat===lineKey&&(()=>{const d=new Date(g.fecha);return d.getMonth()===mes&&d.getFullYear()===anio;})()).reduce((s,g)=>s+Number(g.monto||0),0);
+function presupIngresoMes(propId,anio,mes){
+  const d=findPresupuesto(propId,anio,mes),L=d?d.lineas:{},auto=presupIngresos(propId);
+  const has=k=>L[k]!==undefined&&L[k]!==null&&L[k]!=='';
+  return{deptos:has('num_deptos')?Number(L.num_deptos):auto.deptos,renta:has('renta_mensual')?Number(L.renta_mensual):auto.renta,estimado:!has('renta_mensual')};
 }
-function calcPresup(d){
-  const ing=presupIngresos(d.propId||presupCtx.propId);
-  const L=d.lineas;const v=k=>Number(L[k]||0);
-  const opexKeys=PRESUP_SECCIONES[1].lineas.filter(x=>x.tipo==='edit').map(x=>x.k);
-  const opex=opexKeys.reduce((s,k)=>s+v(k),0);
-  const ger=['ger_super','ger_temu','ger_amenidades_irma','ger_comida'].reduce((s,k)=>s+v(k),0);
-  const pers=v('gastos_personales');
-  const ingreso=ing.renta;
-  return{deptos:ing.deptos,ingreso,opex,ger,pers,
-    ganancia_op:ingreso-opex,ganancia_bruta:ingreso-opex,ganancia_final:ingreso-opex-ger-pers};
+// Renta efectivamente cobrada en el mes (pagos marcados como pagados)
+function cobradoMes(propId,anio,mes){
+  const ids=new Set(DB.inquilinos.filter(t=>t.propietarioId===propId).map(t=>t.id));
+  const ps=DB.pagos.filter(p=>p.pagado&&ids.has(p.iid)&&Number(p.anio)===anio&&Number(p.mes)===mes+1);
+  return{n:new Set(ps.map(p=>p.iid)).size,monto:ps.reduce((s,p)=>s+Number(p.monto||0),0)};
 }
-function openPresupuestoSelector(){
+// Índice de gastos reales por subcategoría y mes (se construye una vez por render)
+function presupRealIdx(propId){
+  const idx={};
+  DB.gastos.forEach(g=>{
+    if(g.propietarioId!==propId||!g.subcat||!g.fecha)return;
+    const d=new Date(g.fecha);const k=d.getFullYear()+'-'+d.getMonth()+'|'+g.subcat;
+    idx[k]=(idx[k]||0)+Number(g.monto||0);
+  });
+  return idx;
+}
+function gastoRealLinea(propId,anio,mes,lineKey,idx){
+  idx=idx||presupRealIdx(propId);
+  return idx[anio+'-'+mes+'|'+lineKey]||0;
+}
+// Valores de todas las líneas de un mes. modo 'presup' | 'real'
+function presupBase(propId,anio,mes,modo,idx){
+  const d=findPresupuesto(propId,anio,mes),L=d?d.lineas:{};
+  const V={};
+  presupEditKeys().forEach(k=>{V[k]=modo==='presup'?Number(L[k]||0):gastoRealLinea(propId,anio,mes,k,idx);});
+  if(modo==='presup'){const ing=presupIngresoMes(propId,anio,mes);V.num_deptos=ing.deptos;V.renta_mensual=ing.renta;}
+  else{const c=cobradoMes(propId,anio,mes);V.num_deptos=c.n;V.renta_mensual=c.monto;}
+  V.ingreso_estimado=V.renta_mensual;
+  V.opex_subtotal=PRESUP_SECCIONES[1].lineas.filter(x=>x.tipo==='edit').reduce((s,x)=>s+V[x.k],0);
+  V.ganancia_op=V.ingreso_estimado-V.opex_subtotal;
+  V.ger_subtotal=['ger_super','ger_temu','ger_amenidades_irma','ger_comida'].reduce((s,k)=>s+V[k],0);
+  V.ganancia_bruta=V.ganancia_op;
+  V.ganancia_final=V.ganancia_op-V.ger_subtotal-(V.gastos_personales||0);
+  return V;
+}
+// 'dif' = diferencia A FAVOR: en gastos presupuesto−real; en ingresos/ganancias real−presupuesto
+function presupValoresMes(propId,anio,mes,modo,idx){
+  if(modo!=='dif')return presupBase(propId,anio,mes,modo,idx);
+  const P=presupBase(propId,anio,mes,'presup',idx),R=presupBase(propId,anio,mes,'real',idx),D={};
+  Object.keys(P).forEach(k=>{D[k]=PRESUP_KEYS_INGRESO.includes(k)?(R[k]-P[k]):(P[k]-R[k]);});
+  return D;
+}
+function presupFmtN(n){if(n===null||n===undefined||n==='')return '';const v=Number(n);if(!isFinite(v))return '';return v.toLocaleString('es-MX',{maximumFractionDigits:2});}
+// Acepta "1,250", "$ 1 250.50" y operaciones tipo Excel: "=500+320", "1200*3"
+function presupParse(txt){
+  let s=String(txt||'').trim();if(s==='')return null;
+  s=s.replace(/^=/,'').replace(/[$\s]/g,'').replace(/,(?=\d{3}(\D|$))/g,'');
+  if(/^[0-9+\-*/().]+$/.test(s)){try{const v=Function('"use strict";return ('+s+')')();if(isFinite(v))return Math.round(v*100)/100;}catch(e){}}
+  const v=parseFloat(s.replace(/,/g,'.'));return isFinite(v)?v:null;
+}
+
+// ── HOJA ANUAL ───────────────────────────────────────────────
+function openPresupuestoSelector(){ // entrada desde Gestión › Gastos
   if(DB.propietarios.length===0){snack('No hay propietarios');return;}
   const now=new Date();
-  modal(`<div class="ms"><div class="mh"></div>
-    <div class="mt2">📋 Presupuesto mensual</div>
-    <div class="fg"><label class="fl">Propietario</label><select class="fi" id="pr-prop">${DB.propietarios.map(p=>`<option value="${p.id}">${p.nombre}</option>`).join('')}</select></div>
-    <div class="grid2">
-      <div class="fg"><label class="fl">Mes</label><select class="fi" id="pr-mes">${MF.map((m,i)=>`<option value="${i}"${i===now.getMonth()?' selected':''}>${m}</option>`).join('')}</select></div>
-      <div class="fg"><label class="fl">Año</label><input class="fi" type="number" id="pr-anio" value="${now.getFullYear()}"></div>
-    </div>
-    <button class="btn bg bfu" onclick="const p=document.getElementById('pr-prop').value,m=+document.getElementById('pr-mes').value,a=+document.getElementById('pr-anio').value;closeM();openPresupuesto(p,a,m)">Abrir presupuesto →</button></div>`);
+  const prop=presupHoja.propId&&getPropietario(presupHoja.propId)?presupHoja.propId:DB.propietarios[0].id;
+  openPresupuestoHoja(prop,presupHoja.anio||now.getFullYear());
 }
-function openPresupuesto(propId,anio,mes){
-  presupCtx={propId,anio,mes};
-  const d=getPresupuesto(propId,anio,mes);d.propId=propId;
-  const prop=getPropietario(propId);
-  const ing=presupIngresos(propId);
-  const calc=calcPresup(d);
-  const pct=(n)=>ing.renta>0?(n/ing.renta*100).toFixed(1)+'%':'—';
-  const row=(lin)=>{
-    if(lin.tipo==='auto'){
-      const val=lin.k==='num_deptos'?ing.deptos:ing.renta;
-      return `<tr><td style="padding:7px 6px;font-size:11px">${lin.l}</td>
-        <td style="text-align:right;font-size:12px;font-weight:600;padding:7px 4px">${lin.k==='num_deptos'?ing.deptos:fmt(ing.renta)}</td>
-        <td style="text-align:right;font-size:10px;color:var(--dim);padding:7px 4px">—</td>
-        <td style="text-align:right;font-size:10px;color:var(--dim);padding:7px 4px">${lin.k==='num_deptos'?'':'100%'}</td></tr>`;
+function openPresupuestoHoja(propId,anio){
+  presupHoja.propId=propId;presupHoja.anio=anio;
+  if(!document.getElementById('psheet-css')){
+    const st=document.createElement('style');st.id='psheet-css';
+    st.textContent=`#presup-sheet{position:fixed;inset:0;background:var(--bg);z-index:150;display:flex;flex-direction:column}
+.psheet{border-collapse:separate;border-spacing:0;font-size:12px}
+.psheet th,.psheet td{border-right:1px solid #E4E9EF;border-bottom:1px solid #E4E9EF;padding:0;white-space:nowrap;background:#fff}
+.psheet thead th{position:sticky;top:0;z-index:3;background:#EDF1F6;font-size:10.5px;font-weight:700;color:#475569;padding:7px 6px;text-align:right;cursor:pointer;user-select:none}
+.psheet thead th.cur{background:#D6E6F7;color:#0059A9}
+.psheet .c0{position:sticky;left:0;z-index:2;text-align:left;padding:6px 8px;min-width:150px;max-width:170px;white-space:normal;font-size:11px;line-height:1.25;box-shadow:1px 0 0 #CBD5DF}
+.psheet thead th.c0{z-index:4;cursor:default;text-align:left}
+.psheet td.num{text-align:right;padding:6px 7px;min-width:76px;font-variant-numeric:tabular-nums}
+.psheet td.cur{background:#FAFCFF}
+.psheet input{width:80px;border:0;background:transparent;text-align:right;font:inherit;font-size:12px;padding:6px 7px;outline:none;color:var(--txt);font-variant-numeric:tabular-nums}
+.psheet input:focus{background:#E7F0FA;box-shadow:inset 0 0 0 2px #0059A9}
+.psheet input::placeholder{color:#9AA8B8;font-style:italic}
+.psheet tr.sec td{color:#fff;font-weight:700;font-size:10px;letter-spacing:.4px;padding:5px 8px}
+.psheet tr.calc td{background:#F3F6FA;font-weight:700}
+.psheet td.tot{background:#F8FAFC;font-weight:700}
+.psheet .neg{color:#D64545}.psheet .pos{color:#2E7D46}`;
+    document.head.appendChild(st);
+  }
+  let el=document.getElementById('presup-sheet');
+  if(!el){el=document.createElement('div');el.id='presup-sheet';document.body.appendChild(el);}
+  renderPresupHoja();
+  // llevar la vista al mes actual
+  const now=new Date();
+  if(anio===now.getFullYear())setTimeout(()=>{const th=document.querySelector('#presup-sheet th.cur'),sc=document.getElementById('psheet-scroll'),c0=document.querySelector('#presup-sheet thead th.c0');if(th&&sc&&c0)sc.scrollLeft=Math.max(0,th.offsetLeft-c0.offsetWidth-th.offsetWidth);},30);
+}
+function closePresupHoja(){const el=document.getElementById('presup-sheet');if(el)el.remove();}
+function setPresupModo(m){presupHoja.modo=m;renderPresupHoja();}
+function presupCambiaAnio(n){presupHoja.anio+=n;renderPresupHoja();}
+function presupCambiaProp(id){presupHoja.propId=id;renderPresupHoja();}
+
+function renderPresupHoja(){
+  const el=document.getElementById('presup-sheet');if(!el)return;
+  const {propId,anio,modo}=presupHoja;
+  const idx=presupRealIdx(propId);
+  const now=new Date(),curM=anio===now.getFullYear()?now.getMonth():-1;
+  const V=[];for(let m=0;m<12;m++)V.push(presupValoresMes(propId,anio,m,modo,idx));
+  const guardado=[];for(let m=0;m<12;m++)guardado.push(presupTieneDatos(findPresupuesto(propId,anio,m)));
+  // años con datos (historial)
+  const porAnio={};DB.presupuestos.filter(p=>p.propietarioId===propId&&presupTieneDatos(p)).forEach(p=>{porAnio[p.anio]=(porAnio[p.anio]||0)+1;});
+  const anios=Object.keys(porAnio).map(Number).sort();
+  const editable=modo==='presup';
+  const cls=v=>modo==='dif'?(v<0?'neg':v>0?'pos':''):(v<0?'neg':'');
+  let rows='';let ri=0;
+  PRESUP_SECCIONES.forEach(s=>{
+    rows+=`<tr class="sec"><td class="c0" style="background:${s.color}">${s.sec}</td><td colspan="13" style="background:${s.color}"></td></tr>`;
+    s.lineas.forEach(l=>{
+      const isCalc=l.tipo==='calc';
+      let tr=`<tr class="${isCalc?'calc':''}"><td class="c0" style="background:${isCalc?'#F3F6FA':'#fff'}">${l.l}</td>`;
+      let tot=0;
+      for(let m=0;m<12;m++){
+        const v=V[m][l.k]||0;tot+=v;
+        const curC=m===curM?' cur':'';
+        if(editable&&(l.tipo==='edit'||l.tipo==='auto')){
+          const d=findPresupuesto(propId,anio,m);
+          const saved=d&&d.lineas[l.k]!==undefined&&d.lineas[l.k]!==null&&d.lineas[l.k]!=='';
+          const raw=saved?Number(d.lineas[l.k]):null;
+          const ph=l.tipo==='auto'?presupFmtN(V[m][l.k]):'';
+          tr+=`<td class="${curC}"><input data-r="${ri}" data-m="${m}" data-k="${l.k}" inputmode="decimal" value="${raw?presupFmtN(raw):(saved&&raw===0?'0':'')}" placeholder="${ph}" onfocus="presupFocus(this)" onblur="presupBlur(this)" onkeydown="presupKey(event,this)" onchange="presupSet(this)"></td>`;
+        }else{
+          tr+=`<td class="num${curC}${isCalc?'':''}"><span id="pc-${l.k}-${m}" class="${cls(v)}">${v?presupFmtN(v):(isCalc?'0':'')}</span></td>`;
+        }
+      }
+      const totTxt=l.k==='num_deptos'?'—':(tot||isCalc?(presupFmtN(tot)||'0'):'');
+      tr+=`<td class="num tot"><span id="pt-${l.k}" class="${l.k==='num_deptos'?'':cls(tot)}">${totTxt}</span></td></tr>`;
+      rows+=tr;ri++;
+    });
+  });
+  const props=DB.propietarios.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  const modos=[['presup','✏️ Presupuesto'],['real','📊 Real'],['dif','± Diferencia']];
+  el.innerHTML=`
+  <div style="padding:10px 12px 8px;border-bottom:1px solid #E4E9EF;background:var(--bg)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <button class="btn bo bsm" onclick="closePresupHoja()" style="padding:6px 10px">✕</button>
+      <div style="font-weight:700;font-size:15px;flex:1">📋 Presupuesto</div>
+      <button class="btn bs bsm" onclick="exportPresupExcel()">📊 Excel</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+      <select class="fi" style="flex:1;padding:7px 9px;font-size:12px" onchange="presupCambiaProp(this.value)">${props.map(p=>`<option value="${p.id}"${p.id===propId?' selected':''}>👤 ${p.nombre}</option>`).join('')}</select>
+      <button class="btn bo bsm" onclick="presupCambiaAnio(-1)">‹</button>
+      <div style="font-weight:700;font-size:14px;min-width:44px;text-align:center">${anio}</div>
+      <button class="btn bo bsm" onclick="presupCambiaAnio(1)">›</button>
+    </div>
+    <div style="display:flex;gap:4px;background:var(--s2);padding:3px;border-radius:10px">${modos.map(([k,t])=>`<button class="btn ${modo===k?'bg':'bo'} bsm" style="flex:1;border:${modo===k?'none':'1px solid transparent'};padding:7px 4px;font-size:11px" onclick="setPresupModo('${k}')">${t}</button>`).join('')}</div>
+    <div style="font-size:10px;color:var(--dim);margin-top:6px;line-height:1.35">${
+      modo==='presup'?'Toca una celda y escribe; <b>Enter</b> baja, <b>Tab</b> avanza. Acepta operaciones (<b>=500+320</b>). Toca el <b>mes</b> para copiar, ver detalle o PDF. <span style="color:#2E7D46">●</span> = mes guardado.'
+      :modo==='real'?'Gastos reales del mes (los que tienen subcategoría) y renta cobrada. Solo lectura.'
+      :'Diferencia <b>a favor</b>: en gastos, presupuesto − real; en ingresos y ganancias, real − presupuesto. <span class="pos" style="color:#2E7D46">Verde</span> = mejor de lo planeado.'}
+    </div>
+    ${anios.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;align-items:center"><span style="font-size:9.5px;color:var(--dim)">Historial:</span>${anios.map(a=>`<span class="chip${a===anio?' on':''}" style="font-size:10px;padding:3px 9px" onclick="presupHoja.anio=${a};renderPresupHoja()">${a} · ${porAnio[a]} mes${porAnio[a]>1?'es':''}</span>`).join('')}</div>`:''}
+  </div>
+  <div id="psheet-scroll" style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch">
+    <table class="psheet"><thead><tr><th class="c0">Concepto · MXN</th>${MN.map((mn,m)=>`<th class="${m===curM?'cur':''}" onclick="presupMenuMes(${m})">${mn}${guardado[m]?' <span style="color:#2E7D46">●</span>':''} <span style="font-size:8px;font-weight:400">▾</span></th>`).join('')}<th style="cursor:default">Total</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <div style="height:90px"></div>
+  </div>`;
+}
+function presupFocus(inp){const v=presupParse(inp.value);inp.value=v===null?'':String(v);setTimeout(()=>inp.select(),0);}
+function presupBlur(inp){const v=presupParse(inp.value);inp.value=v===null?'':(v===0?'0':presupFmtN(v));}
+function presupKey(e,inp){
+  const down=(e.key==='Enter'&&!e.shiftKey)||e.key==='ArrowDown',up=(e.key==='Enter'&&e.shiftKey)||e.key==='ArrowUp';
+  if(!down&&!up)return;
+  e.preventDefault();
+  const col=[...document.querySelectorAll(`#presup-sheet input[data-m="${inp.dataset.m}"]`)];
+  const i=col.indexOf(inp);const nx=col[down?i+1:i-1];
+  if(e.key==='Enter')inp.blur(); // dispara change
+  if(nx){nx.focus();}
+}
+function presupSet(inp){
+  const {propId,anio}=presupHoja;const m=Number(inp.dataset.m),k=inp.dataset.k;
+  const v=presupParse(inp.value);
+  const d=ensurePresupuesto(propId,anio,m);
+  if(v===null){if(PRESUP_AUTO_KEYS.includes(k))delete d.lineas[k];else delete d.lineas[k];}
+  else d.lineas[k]=v;
+  d.actualizado=nowISO();
+  saveDB('presupuestos');
+  presupRefresh();
+}
+// Recalcula subtotales, totales y marcas de "guardado" sin redibujar (no pierde el foco)
+function presupRefresh(){
+  const {propId,anio,modo}=presupHoja;const idx=presupRealIdx(propId);
+  const V=[];for(let m=0;m<12;m++)V.push(presupValoresMes(propId,anio,m,modo,idx));
+  const cls=v=>modo==='dif'?(v<0?'neg':v>0?'pos':''):(v<0?'neg':'');
+  PRESUP_SECCIONES.forEach(s=>s.lineas.forEach(l=>{
+    let tot=0;
+    for(let m=0;m<12;m++){
+      const v=V[m][l.k]||0;tot+=v;
+      const c=document.getElementById(`pc-${l.k}-${m}`);
+      if(c){c.textContent=v?presupFmtN(v):(l.tipo==='calc'?'0':'');c.className=cls(v);}
     }
+    const t=document.getElementById('pt-'+l.k);
+    if(t&&l.k!=='num_deptos'){t.textContent=(tot||l.tipo==='calc')?(presupFmtN(tot)||'0'):'';t.className=cls(tot);}
+  }));
+  document.querySelectorAll('#presup-sheet thead th').forEach((th,i)=>{
+    const m=i-1;if(m<0||m>11)return;
+    const g=presupTieneDatos(findPresupuesto(propId,anio,m));
+    th.innerHTML=`${MN[m]}${g?' <span style="color:#2E7D46">●</span>':''} <span style="font-size:8px;font-weight:400">▾</span>`;
+  });
+}
+function presupMenuMes(m){
+  const {propId,anio}=presupHoja;
+  const [pa,pm]=presupPrevMes(anio,m),[na,nm]=presupNextMes(anio,m);
+  const idx=presupRealIdx(propId);
+  const P=presupBase(propId,anio,m,'presup',idx),R=presupBase(propId,anio,m,'real',idx);
+  const d=findPresupuesto(propId,anio,m);
+  const prev=findPresupuesto(propId,pa,pm);
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">${MF[m]} ${anio}</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px">${getPropietario(propId)?.nombre||''} · ${presupTieneDatos(d)?'<span style="color:var(--g)">● presupuesto guardado</span>':'sin presupuesto capturado'}${d&&d.copiadoDe?' · copiado de '+d.copiadoDe:''}</div>
+    <div class="card" style="padding:8px 12px;margin-bottom:12px;font-size:12px">
+      <div style="display:grid;grid-template-columns:1fr auto auto;gap:4px 12px">
+        <span style="color:var(--dim);font-size:10px"></span><b style="font-size:10px;color:var(--dim);text-align:right">PRESUP.</b><b style="font-size:10px;color:var(--dim);text-align:right">REAL</b>
+        <span>Ingreso</span><span style="text-align:right">${fmt(P.ingreso_estimado)}</span><span style="text-align:right">${fmt(R.ingreso_estimado)}</span>
+        <span>Gastos operativos</span><span style="text-align:right">${fmt(P.opex_subtotal)}</span><span style="text-align:right">${fmt(R.opex_subtotal)}</span>
+        <span><b>Ganancia final</b></span><b style="text-align:right;color:${P.ganancia_final<0?'var(--r)':'var(--b)'}">${fmt(P.ganancia_final)}</b><b style="text-align:right;color:${R.ganancia_final<0?'var(--r)':'var(--b)'}">${fmt(R.ganancia_final)}</b>
+      </div>
+    </div>
+    <button class="btn bg bfu" onclick="closeM();openPresupuestoMes('${propId}',${anio},${m})">🔍 Ver detalle del mes (presupuesto vs real)</button>
+    <button class="btn bo bfu" style="margin-top:8px" ${presupTieneDatos(prev)?'':'disabled'} onclick="presupCopiar(${pa},${pm},${anio},${m})">⬅️ Copiar desde ${MF[pm]} ${pa}${presupTieneDatos(prev)?'':' (vacío)'}</button>
+    <button class="btn bo bfu" style="margin-top:8px" ${presupTieneDatos(d)?'':'disabled'} onclick="presupCopiar(${anio},${m},${na},${nm})">➡️ Copiar este mes a ${MF[nm]} ${na}</button>
+    <button class="btn bo bfu" style="margin-top:8px" onclick="closeM();exportPresupuestoPDF('${propId}',${anio},${m})">📄 PDF del mes</button>
+    ${d?`<button class="btn bd bfu" style="margin-top:8px" onclick="presupVaciar(${anio},${m})">🧹 Vaciar este mes</button>`:''}
+    <button class="btn bo bfu" style="margin-top:8px" onclick="closeM()">Cerrar</button>
+    <div style="height:10px"></div></div>`);
+}
+function presupCopiar(fa,fm,ta,tm){
+  const {propId}=presupHoja;
+  const src=findPresupuesto(propId,fa,fm);
+  if(!presupTieneDatos(src)){snack('El mes de origen está vacío');return;}
+  const dst=findPresupuesto(propId,ta,tm);
+  if(presupTieneDatos(dst)&&!confirm(`${MF[tm]} ${ta} ya tiene presupuesto. ¿Reemplazarlo con el de ${MF[fm]} ${fa}?`))return;
+  const d=ensurePresupuesto(propId,ta,tm);
+  d.lineas=JSON.parse(JSON.stringify(src.lineas));d.copiadoDe=`${MF[fm]} ${fa}`;d.actualizado=nowISO();
+  saveDB('presupuestos');closeM();
+  if(presupHoja.anio!==ta)presupHoja.anio=ta;
+  renderPresupHoja();snack(`✓ Copiado a ${MF[tm]} ${ta} — ajusta lo que cambie`);
+}
+function presupVaciar(a,m){
+  if(!confirm(`¿Borrar el presupuesto de ${MF[m]} ${a}?`))return;
+  const {propId}=presupHoja;
+  DB.presupuestos=DB.presupuestos.filter(x=>!(x.propietarioId===propId&&x.anio===a&&x.mes===m));
+  saveDB('presupuestos');closeM();renderPresupHoja();snack('Mes vaciado');
+}
+function exportPresupExcel(){
+  const {propId,anio}=presupHoja;const prop=getPropietario(propId);const idx=presupRealIdx(propId);
+  const wb=XLSX.utils.book_new();
+  [['presup','Presupuesto'],['real','Real'],['dif','Diferencia a favor']].forEach(([modo,nombre])=>{
+    const V=[];for(let m=0;m<12;m++)V.push(presupValoresMes(propId,anio,m,modo,idx));
+    const aoa=[[`${prop?.nombre||''} · ${nombre} ${anio}`],[],['Concepto',...MF,'Total']];
+    PRESUP_SECCIONES.forEach(s=>{
+      aoa.push([s.sec]);
+      s.lineas.forEach(l=>{
+        const vals=V.map(x=>Math.round((x[l.k]||0)*100)/100);
+        aoa.push([l.l,...vals,l.k==='num_deptos'?'':Math.round(vals.reduce((a,b)=>a+b,0)*100)/100]);
+      });
+    });
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:44},...MF.map(()=>({wch:12})),{wch:14}];
+    XLSX.utils.book_append_sheet(wb,ws,nombre.slice(0,31));
+  });
+  XLSX.writeFile(wb,`presupuesto_${(prop?.nombre||'').replace(/\s+/g,'_')}_${anio}.xlsx`);
+  snack('📊 Excel generado (3 hojas)');
+}
+
+// ── DETALLE MENSUAL (presupuesto vs real con %) ─────────────
+function openPresupuestoMes(propId,anio,mes){
+  presupCtx={propId,anio,mes};
+  const idx=presupRealIdx(propId);
+  const P=presupBase(propId,anio,mes,'presup',idx),R=presupBase(propId,anio,mes,'real',idx);
+  const d=findPresupuesto(propId,anio,mes);
+  const prop=getPropietario(propId);
+  const ingE=presupIngresoMes(propId,anio,mes);
+  const pct=n=>P.ingreso_estimado>0?(n/P.ingreso_estimado*100).toFixed(1)+'%':'—';
+  const row=lin=>{
     if(lin.tipo==='calc'){
-      const m={ingreso_estimado:ing.renta,opex_subtotal:calc.opex,ganancia_op:calc.ganancia_op,ger_subtotal:calc.ger,ganancia_bruta:calc.ganancia_bruta,ganancia_final:calc.ganancia_final}[lin.k]||0;
+      const m=P[lin.k]||0,r=R[lin.k]||0;
       return `<tr style="background:#EDF1F6"><td style="padding:8px 6px;font-size:11.5px;font-weight:700">${lin.l}</td>
         <td style="text-align:right;font-size:13px;font-weight:700;color:${m<0?'#E05C5C':'#0059A9'};padding:8px 4px">${fmt(m)}</td>
-        <td style="text-align:right;font-size:10px;color:var(--dim);padding:8px 4px"></td>
+        <td style="text-align:right;font-size:11px;font-weight:700;padding:8px 4px;color:${r<0?'#E05C5C':'#475569'}">${fmt(r)}</td>
         <td style="text-align:right;font-size:10px;color:var(--dim);padding:8px 4px">${pct(m)}</td></tr>`;
     }
-    const real=gastoRealLinea(propId,anio,mes,lin.k);
-    const presupVal=Number(d.lineas[lin.k]||0);
+    const isAuto=lin.tipo==='auto';
+    const saved=d&&d.lineas[lin.k]!==undefined&&d.lineas[lin.k]!==null&&d.lineas[lin.k]!=='';
+    const presupVal=saved?Number(d.lineas[lin.k]):(isAuto?'':0);
+    const real=R[lin.k]||0;
+    const ph=isAuto?presupFmtN(P[lin.k]):'0';
     return `<tr><td style="padding:5px 6px;font-size:11px">${lin.l}</td>
-      <td style="padding:4px 4px"><input type="number" inputmode="decimal" value="${presupVal||''}" placeholder="0" onchange="setPresupLinea('${lin.k}',this.value)" style="width:78px;text-align:right;background:var(--s2);border:1px solid #CBD5DF;border-radius:6px;padding:5px 6px;font-size:12px;color:var(--txt)"></td>
-      <td style="text-align:right;font-size:11px;padding:5px 4px;color:${real>0?(real>presupVal&&presupVal>0?'#E05C5C':'#426A54'):'var(--dim)'}">${real>0?fmt(real):'—'}</td>
-      <td style="text-align:right;font-size:10px;color:var(--dim);padding:5px 4px">${presupVal>0?pct(presupVal):''}</td></tr>`;
+      <td style="padding:4px 4px"><input type="text" inputmode="decimal" value="${presupVal?presupFmtN(presupVal):''}" placeholder="${ph}" onchange="setPresupLinea('${lin.k}',this.value)" style="width:84px;text-align:right;background:var(--s2);border:1px solid #CBD5DF;border-radius:6px;padding:5px 6px;font-size:12px;color:var(--txt)"></td>
+      <td style="text-align:right;font-size:11px;padding:5px 4px;color:${real>0?(!isAuto&&real>Number(presupVal||0)&&Number(presupVal||0)>0?'#E05C5C':'#426A54'):'var(--dim)'}">${real>0?(lin.k==='num_deptos'?real:fmt(real)):'—'}</td>
+      <td style="text-align:right;font-size:10px;color:var(--dim);padding:5px 4px">${!isAuto&&presupVal>0?pct(presupVal):''}</td></tr>`;
   };
   let tabla='';
   PRESUP_SECCIONES.forEach(s=>{
     tabla+=`<tr><td colspan="4" style="background:${s.color};color:#fff;font-size:10px;font-weight:700;letter-spacing:.5px;padding:6px 8px">${s.sec}</td></tr>`;
     s.lineas.forEach(l=>tabla+=row(l));
   });
+  const [pa,pm]=presupPrevMes(anio,mes),[na,nm]=presupNextMes(anio,mes);
   modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
-    <div class="mt2">📋 Presupuesto · ${prop?.nombre||''}</div>
-    <div style="font-size:11px;color:var(--dim);margin-bottom:10px">${MF[mes]} ${anio} · columna <b>Real</b> se llena sola con los gastos del mes que tengan subcategoría.</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <button class="btn bo bsm" onclick="openPresupuestoMes('${propId}',${pa},${pm})">‹</button>
+      <div class="mt2" style="margin:0;flex:1;text-align:center">${MF[mes]} ${anio}</div>
+      <button class="btn bo bsm" onclick="openPresupuestoMes('${propId}',${na},${nm})">›</button>
+    </div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:10px;text-align:center">${prop?.nombre||''} · ${presupTieneDatos(d)?'<span style="color:var(--g)">● guardado</span>':'sin capturar'}${ingE.estimado?' · ingreso estimado con rentas actuales':''}</div>
     <div style="overflow-x:auto;border:1px solid #E4E9EF;border-radius:9px">
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="background:var(--s2)">
@@ -6176,33 +6512,35 @@ function openPresupuesto(propId,anio,mes){
       </tr></thead><tbody>${tabla}</tbody></table></div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn bg" style="flex:1" onclick="exportPresupuestoPDF('${propId}',${anio},${mes})">📄 PDF</button>
-      <button class="btn bo" onclick="closeM()">Cerrar</button>
+      <button class="btn bo" onclick="closeM();if(document.getElementById('presup-sheet'))renderPresupHoja()">Cerrar</button>
     </div><div style="height:14px"></div></div>`);
 }
+function openPresupuesto(propId,anio,mes){openPresupuestoMes(propId,anio,mes);} // compat
 function setPresupLinea(k,val){
-  const d=getPresupuesto(presupCtx.propId,presupCtx.anio,presupCtx.mes);
-  d.lineas[k]=Number(val)||0;
+  const {propId,anio,mes}=presupCtx;
+  const d=ensurePresupuesto(propId,anio,mes);
+  const v=presupParse(val);
+  if(v===null)delete d.lineas[k];else d.lineas[k]=v;
+  d.actualizado=nowISO();
   saveDB('presupuestos');
-  // refrescar totales sin cerrar
-  openPresupuesto(presupCtx.propId,presupCtx.anio,presupCtx.mes);
+  openPresupuestoMes(propId,anio,mes);
+  if(document.getElementById('presup-sheet'))renderPresupHoja();
 }
 async function exportPresupuestoPDF(propId,anio,mes){
-  const d=getPresupuesto(propId,anio,mes);d.propId=propId;
-  const prop=getPropietario(propId);const ing=presupIngresos(propId);const calc=calcPresup(d);
-  const pct=(n)=>ing.renta>0?(n/ing.renta*100).toFixed(1)+'%':'';
+  const prop=getPropietario(propId);const idx=presupRealIdx(propId);
+  const P=presupBase(propId,anio,mes,'presup',idx),R=presupBase(propId,anio,mes,'real',idx);
+  const pct=n=>P.ingreso_estimado>0?(n/P.ingreso_estimado*100).toFixed(1)+'%':'';
   let rows='';
   PRESUP_SECCIONES.forEach(s=>{
     rows+=`<tr><td colspan="4" style="background:${s.color};color:#fff;font-weight:700;font-size:11px;padding:6px 8px">${s.sec}</td></tr>`;
     s.lineas.forEach(l=>{
-      let val,realCol='';
-      if(l.tipo==='auto')val=l.k==='num_deptos'?ing.deptos:fmt(ing.renta);
-      else if(l.tipo==='calc'){const m={ingreso_estimado:ing.renta,opex_subtotal:calc.opex,ganancia_op:calc.ganancia_op,ger_subtotal:calc.ger,ganancia_bruta:calc.ganancia_bruta,ganancia_final:calc.ganancia_final}[l.k]||0;val='<b>'+fmt(m)+'</b>';}
-      else{const pv=Number(d.lineas[l.k]||0);val=pv?fmt(pv):'—';const rl=gastoRealLinea(propId,anio,mes,l.k);realCol=rl?fmt(rl):'';}
-      const isCalc=l.tipo==='calc';
+      const isCalc=l.tipo==='calc',p=P[l.k]||0,r=R[l.k]||0;
+      const pTxt=l.k==='num_deptos'?p:(isCalc?'<b>'+fmt(p)+'</b>':(p?fmt(p):'—'));
+      const rTxt=l.k==='num_deptos'?(r||''):(r?fmt(r):'');
       rows+=`<tr style="${isCalc?'background:#f0f4f8;':''}"><td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:12px">${l.l}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:12px">${val}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:11px;color:#555">${realCol}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:11px;color:#888">${l.tipo==='edit'&&d.lineas[l.k]?pct(Number(d.lineas[l.k])):(l.tipo==='calc'?pct({ingreso_estimado:ing.renta,opex_subtotal:calc.opex,ganancia_op:calc.ganancia_op,ger_subtotal:calc.ger,ganancia_bruta:calc.ganancia_bruta,ganancia_final:calc.ganancia_final}[l.k]||0):'')}</td></tr>`;
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:12px">${pTxt}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:11px;color:#555">${rTxt}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-size:11px;color:#888">${l.k!=='num_deptos'&&p?pct(p):''}</td></tr>`;
     });
   });
   const inner=pdfEncabezado('Presupuesto mensual — estado de resultados',`${prop?.nombre||''} · ${MF[mes]} ${anio}`)+
@@ -6877,7 +7215,7 @@ function saveObra(id){
     saveDB('gastos');
   }
   saveDB('obras');
-  closeM();snack(id?'Obra actualizada ✓':'Reporte de obra creado ✓');
+  closeM();snack(id?'Obra actualizada ✓':'Reporte de obra creado ✓');if(curView==='con'){gestSub='incidentes';incTab='obras';setTimeout(renderCon,0);}
   pendingPhotos=[];
   renderRep();
 }
@@ -6911,7 +7249,7 @@ function delObra(id){
   const o=DB.obras.find(x=>x.id===id);
   if(o?.gastoId)DB.gastos=DB.gastos.filter(g=>g.id!==o.gastoId);
   DB.obras=DB.obras.filter(x=>x.id!==id);
-  saveDB('obras');saveDB('gastos');closeM();snack('Eliminado');renderRep();
+  saveDB('obras');saveDB('gastos');closeM();snack('Eliminado');renderRep();if(curView==='con')renderCon();
 }
 
 // ─── REPORTE DE INCIDENTE ─────────────────────────
@@ -7235,7 +7573,7 @@ function saveInspeccion(){
   closeM();
   snack(`✓ Inspección guardada · ${ins.porcentaje.toFixed(1)}%`);
   curInspeccion=null;
-  renderRep();
+  renderRep();if(curView==='con'){gestSub='incidentes';incTab='inspecciones';renderCon();}
 }
 
 function viewInspeccion(id){
@@ -7289,7 +7627,7 @@ function viewInspeccion(id){
 function delInspeccion(id){
   if(!confirm('¿Eliminar esta inspección?'))return;
   DB.inspecciones=DB.inspecciones.filter(x=>x.id!==id);
-  saveDB('inspecciones');closeM();snack('Eliminado');renderRep();
+  saveDB('inspecciones');closeM();snack('Eliminado');renderRep();if(curView==='con')renderCon();
 }
 
 // PDF de la inspección llena
@@ -7923,6 +8261,272 @@ const CAT_KEYWORDS={
   servicios:['agua','luz','cfe','predial','gas','internet','teléfono','wifi','izzi','totalplay','sacmex','tv','naturgy'],
   otros:[]
 };
+
+// ═══════════ LECTOR DE TICKETS (OCR local en el navegador) ═══════════
+// ── Lector de tickets: interpretación del texto (OCR) → datos del gasto ──
+// Reglas por subcategoría del presupuesto (clave = misma de SUBCATS_GASTO / PRESUP_SECCIONES)
+const TICKET_REGLAS={
+  trans_gasolina:['gasolin','pemex','magna','premium','diesel','litros','combustible','bomba ','g500','mobil','shell'],
+  trans_mecanico:['refaccion','llanta','afinacion','mecanic','autozone','balata','aceite para motor','anticongelante'],
+  rep_plomeria:['pvc','codo','tubo','mezcladora','teflon','plomer','flotador','coflex','tinaco','cespol','tuberia','cpvc','llave de paso','regadera','valvula'],
+  rep_electricidad:['cable','apagador','contacto','foco','electric','pastilla','breaker','centro de carga','cinta de aislar','socket','extension','luminaria'],
+  rep_albanileria:['cemento','mortero','arena','grava','block','tabique','varilla','yeso','pegazulejo','azulejo','calhidra','cal '],
+  mant_pintura:['pintura','vinilic','comex','rodillo','brocha','sellador','impermeabiliz','thinner','esmalte','berel','osel'],
+  rep_cerrajeria:['cerradura','chapa','candado','cerrajer','duplicado de llave','copia de llave'],
+  rep_vidrieria:['vidrio','cristal','vidrier','canceleria'],
+  mant_limpieza:['cloro','jabon','detergente','escoba','trapeador','fabuloso','pinol','limpiador','bolsa para basura','bolsa basura'],
+  plagas:['fumiga','plaga','raticida','insecticida','cucaracha'],
+  mant_material:['ferreter','home depot','truper','tornillo','taquete','material','boxito'],
+  serv_luz:['cfe','comision federal','energia electrica','suministrador de servicios basicos'],
+  serv_agua:['sacmex','agua potable','sistema de aguas','derechos por suministro de agua'],
+  serv_internet:['telmex','izzi','totalplay','megacable','internet','infinitum'],
+  ger_super:['walmart','soriana','chedraui','la comer','superama','bodega aurrera','costco','sams club','city market','fresko'],
+  mant_amenidades:['refresco','coca cola','coca-cola','pepsi','agua ciel','bonafont','epura','garrafon','galletas','sabritas'],
+  ger_comida:['toks','vips','porton','restaurante','cafeteria','comida corrida','taqueria','sanborns'],
+};
+// Más específico gana a genérico en caso de empate
+const TICKET_PRIORIDAD=['trans_gasolina','rep_plomeria','rep_electricidad','rep_albanileria','mant_pintura','rep_cerrajeria','rep_vidrieria','mant_limpieza','plagas','serv_luz','serv_agua','serv_internet','trans_mecanico','ger_super','ger_comida','mant_amenidades','mant_material'];
+const TICKET_MARCAS=['HOME DEPOT','OXXO','WALMART','SORIANA','CHEDRAUI','COMEX','PEMEX','7-ELEVEN','COSTCO','SAMS CLUB','BODEGA AURRERA','LA COMER','BOXITO','TRUPER','COPPEL','OFFICE DEPOT','FARMACIAS GUADALAJARA','FARMACIA DEL AHORRO','TELMEX','IZZI','TOTALPLAY','SANBORNS','TOKS','VIPS','AUTOZONE','SUPERAMA','CITY MARKET','BEREL'];
+const TICKET_MESES={ENE:1,FEB:2,MAR:3,ABR:4,MAY:5,JUN:6,JUL:7,AGO:8,SEP:9,SET:9,OCT:10,NOV:11,DIC:12,JAN:1,APR:4,AUG:8,DEC:12,ENERO:1,FEBRERO:2,MARZO:3,ABRIL:4,MAYO:5,JUNIO:6,JULIO:7,AGOSTO:8,SEPTIEMBRE:9,OCTUBRE:10,NOVIEMBRE:11,DICIEMBRE:12};
+const TICKET_ROMANOS={I:1,II:2,III:3,IV:4,V:5,VI:6,VII:7,VIII:8,IX:9,X:10,XI:11,XII:12};
+
+function _tkNorm(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();}
+function _tkLev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let p=Array.from({length:n+1},(_,j)=>j);for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c;}return p[n];}
+// "1,454.00" "1 454.00" "59,00" "632.50" → número
+function _tkMonto(raw){
+  let s=String(raw).replace(/[$\s]/g,'').replace(/(\d)[Oo](?=\d)/g,(m,d)=>d+'0');
+  if(/,\d{2}$/.test(s)&&!/\./.test(s))s=s.replace(/\./g,'').replace(',','.');
+  else s=s.replace(/,/g,'');
+  const v=parseFloat(s);return isFinite(v)?Math.round(v*100)/100:null;
+}
+// todos los montos de una línea (con decimales) → [números]
+function _tkMontosLinea(l){
+  const out=[];const re=/\$?\s?(\d{1,3}(?:[ ,]\d{3})+(?:[.,]\d{2})|\d+[.,]\d{2})(?!\d)/g;let m;
+  while((m=re.exec(l)))out.push(_tkMonto(m[1]));
+  return out.filter(v=>v!==null);
+}
+function _tkFechaValida(y,m,d){
+  if(y<100)y+=2000;
+  const hoy=new Date();
+  if(y<2010||y>hoy.getFullYear()+1||m<1||m>12||d<1||d>31)return null;
+  const dt=new Date(y,m-1,d);if(dt.getMonth()!==m-1)return null;
+  if(dt-hoy>3*86400000)return null; // no aceptar fechas a futuro
+  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+function _tkBuscaFecha(lineas){
+  // primero las líneas que dicen FECHA, luego todas
+  const orden=[...lineas.filter(l=>/fecha|fec\.|emisi/i.test(l)),...lineas];
+  for(const l0 of orden){
+    // arregla 0→O dentro de abreviaturas de mes (N0V → NOV)
+    const l=l0.toUpperCase().replace(/([A-Z])0([A-Z])/g,'$1O$2');
+    let m;
+    if((m=l.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/))){const f=_tkFechaValida(+m[1],+m[2],+m[3]);if(f)return f;}
+    if((m=l.match(/\b(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})\b/))){
+      let d=+m[1],mo=+m[2];if(mo>12&&d<=12)[d,mo]=[mo,d];
+      const f=_tkFechaValida(+m[3],mo,d);if(f)return f;
+    }
+    if((m=l.match(/\b(\d{1,2})\s*(?:DE\s+)?[-/. ]?\s*([A-Z]{3,10})\.?\s*(?:DE(?:L)?\s+)?[-/. ]?\s*(\d{2,4})\b/))){
+      const mo=TICKET_MESES[m[2]]||TICKET_MESES[m[2].slice(0,3)]||TICKET_ROMANOS[m[2]];
+      if(mo){const f=_tkFechaValida(+m[3],mo,+m[1]);if(f)return f;}
+    }
+  }
+  return null;
+}
+function _tkProveedor(lineas){
+  // Recorre las primeras líneas en orden: la primera que sea marca conocida (tolerante a
+  // errores del OCR: "JOME DEPOT" → HOME DEPOT) o que "tenga cara de nombre" gana.
+  const malas=/\b(rfc|r\.f\.c|fecha|ticket|folio|caja|cajero|sucursal|tienda \d|tel|telefono|av\.?|calle|col\.?|c\.?p\.?|cp |no\.|num|www|http|regimen|lugar de expedicion|nota de remision)\b/i;
+  for(const l of lineas.slice(0,6)){
+    const L=l.toUpperCase().replace(/[^A-Z0-9 \-]/g,' ').replace(/\s+/g,' ').trim();
+    for(const mk of TICKET_MARCAS){
+      if(L.includes(mk))return mk;
+      const toks=L.split(' '),k=mk.split(' ').length;
+      for(let i=0;i+k<=toks.length;i++){const frag=toks.slice(i,i+k).join(' ');if(frag.length>=4&&_tkLev(frag,mk)<=(mk.length<=5?0:1))return mk;}
+    }
+    const letras=(l.match(/[A-Za-zÁÉÍÓÚÑáéíóúñ]/g)||[]).length;
+    if(letras<4||malas.test(l)||/^\d/.test(l)||/\$\s*\d/.test(l))continue;
+    let p=l.replace(/\bS\.?\s?A\.?\s*(DE\s*C\.?\s?V\.?)?(?=\s|$|[,.])/gi,'').replace(/\bS\.?\s?DE\s?R\.?\s?L\.?.*$/i,'')
+      .replace(/\s+DE\s*$/i,'').replace(/[*#|_=]+/g,' ').replace(/\s+/g,' ').trim().replace(/[,.\-]+$/,'');
+    if(p.length>=3)return p.length>40?p.slice(0,40):p;
+  }
+  return '';
+}
+function _tkCategoria(textoNorm){
+  const puntos={};
+  Object.entries(TICKET_REGLAS).forEach(([k,kws])=>{kws.forEach(w=>{const n=textoNorm.split(w).length-1;if(n)puntos[k]=(puntos[k]||0)+n;});});
+  const cands=Object.keys(puntos);if(!cands.length)return {subcat:'',cat:''};
+  cands.sort((a,b)=>(puntos[b]-puntos[a])||(TICKET_PRIORIDAD.indexOf(a)-TICKET_PRIORIDAD.indexOf(b)));
+  const subcat=cands[0];
+  const cat=Object.keys(SUBCATS_GASTO).find(c=>SUBCATS_GASTO[c].includes(subcat))||'';
+  return {subcat,cat};
+}
+// Texto OCR → {proveedor, fecha, total, cat, subcat, articulos, confianza, metodoTotal}
+function ticketParse(texto,ocrConf){
+  const lineas=String(texto||'').split(/\r?\n/).map(l=>l.replace(/\s+/g,' ').trim()).filter(l=>l.length>1);
+  const textoNorm=_tkNorm(lineas.join('\n'));
+  const excluye=/subtotal|sub-total|sub total|\biva\b|i\.v\.a|efectivo|cambio|su pago|pago con|recibido|recibimos|propina|ahorro|descuento|articulos|piezas|no\.? de art|litros|precio\b|p\.?\s?unit/i;
+  // TOTAL por palabra clave (preferencia de mayor a menor)
+  const claves=[/total\s*a\s*pagar|importe\s*total|total\s*m\.?\s?n|total\s*neto|neto\s*a\s*pagar|total\s*\$/i,/\btotal\b/i,/importe|a\s*pagar|monto/i];
+  let total=null,metodo='';
+  for(let ci=0;ci<claves.length&&total===null;ci++){
+    for(let i=lineas.length-1;i>=0;i--){ // de abajo hacia arriba: el total suele ir al final
+      const l=lineas[i];
+      if(!claves[ci].test(l)||/subtotal|sub-total|sub total/i.test(l))continue;
+      if(ci>0&&excluye.test(l))continue;
+      let ms=_tkMontosLinea(l);
+      if(!ms.length&&lineas[i+1])ms=_tkMontosLinea(lineas[i+1]);
+      if(ms.length){total=ms[ms.length-1];metodo=ci===0?'total explícito':ci===1?'renglón TOTAL':'importe';break;}
+    }
+  }
+  if(total===null){ // respaldo: el monto más alto que no sea efectivo/cambio/subtotal
+    const ms=lineas.filter(l=>!excluye.test(l)).flatMap(_tkMontosLinea);
+    if(ms.length){total=Math.max(...ms);metodo='monto mayor (revisar)';}
+  }
+  // artículos: renglones con monto que no son totales/impuestos
+  const articulos=lineas.filter(l=>_tkMontosLinea(l).length&&!/total|importe|a pagar|tarjeta|autoriz/i.test(l)&&!excluye.test(l))
+    .map(l=>l.replace(/\$?\s?\d[\d,. ]*\d$/,'').replace(/^\d+\s+/,'').trim()).filter(x=>x.length>=3).slice(0,8);
+  const fecha=_tkBuscaFecha(lineas);
+  const proveedor=_tkProveedor(lineas);
+  const {cat,subcat}=_tkCategoria(textoNorm);
+  let conf=(ocrConf==null?0.7:ocrConf/100);
+  if(total===null)conf*=0.4;else if(metodo==='monto mayor (revisar)')conf*=0.7;
+  if(!fecha)conf*=0.9;
+  return {proveedor,fecha,total,cat,subcat,articulos,metodoTotal:metodo,confianza:Math.round(conf*100)/100};
+}
+
+// ── Lector de tickets: motor y llenado del formulario ──
+// OCR local con Tesseract.js: la foto se procesa en el propio teléfono/computadora, no sale del dispositivo.
+// La primera vez descarga el motor (~2 MB) y el modelo de español (~1.5 MB); después quedan en caché.
+// Si la app llegara a correr dentro de un artifact de Claude (existe window.claude con "sample"),
+// usa a Claude primero (lee mejor notas escritas a mano) y si falla cae al OCR local.
+const OCR_CDN={
+  script:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+  worker:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+  core:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+  lang:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/spa@1.0.0/4.0.0_best_int'
+};
+let _ocrWorkerP=null,_ocrProg=null;
+function ensureTesseract(){
+  return new Promise((res,rej)=>{
+    if(window.Tesseract){res();return;}
+    const s=document.createElement('script');s.src=OCR_CDN.script;
+    s.onload=()=>res();s.onerror=()=>rej(new Error('No se pudo cargar el lector (la primera vez necesita internet)'));
+    document.head.appendChild(s);
+  });
+}
+function ocrWorker(){
+  if(!_ocrWorkerP){
+    _ocrWorkerP=(async()=>{
+      await ensureTesseract();
+      return Tesseract.createWorker('spa',1,{workerPath:OCR_CDN.worker,corePath:OCR_CDN.core,langPath:OCR_CDN.lang,logger:m=>{if(_ocrProg)try{_ocrProg(m);}catch(e){}}});
+    })().catch(e=>{_ocrWorkerP=null;throw e;});
+  }
+  return _ocrWorkerP;
+}
+// Foto → canvas en grises con contraste estirado (mejora mucho la lectura de tickets térmicos)
+async function ticketPrepararImagen(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('No pude abrir la imagen. Prueba tomando la foto desde la app.'));i.src=url;});
+    let w=img.naturalWidth,h=img.naturalHeight,lado=Math.max(w,h);
+    let esc=Math.min(1,2000/lado);if(lado<900)esc=Math.min(2,900/lado);
+    w=Math.max(1,Math.round(w*esc));h=Math.max(1,Math.round(h*esc));
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+    const ctx=cv.getContext('2d');ctx.drawImage(img,0,0,w,h);
+    const d=ctx.getImageData(0,0,w,h),px=d.data,n=w*h,hist=new Uint32Array(256),g=new Uint8ClampedArray(n);
+    for(let i=0,j=0;i<px.length;i+=4,j++){const v=(px[i]*0.299+px[i+1]*0.587+px[i+2]*0.114)|0;g[j]=v;hist[v]++;}
+    let acc=0,lo=0,hi=255;
+    for(let v=0;v<256;v++){acc+=hist[v];if(acc>n*0.02){lo=v;break;}}
+    acc=0;for(let v=255;v>=0;v--){acc+=hist[v];if(acc>n*0.02){hi=v;break;}}
+    const rng=Math.max(1,hi-lo);
+    for(let i=0,j=0;i<px.length;i+=4,j++){const v=Math.max(0,Math.min(255,((g[j]-lo)*255/rng)|0));px[i]=px[i+1]=px[i+2]=v;}
+    ctx.putImageData(d,0,0);
+    return cv;
+  }finally{URL.revokeObjectURL(url);}
+}
+// Rama opcional: lector con Claude (solo existe dentro de un artifact de Claude)
+async function ticketLectorClaude(){
+  try{
+    if(!(window.claude&&typeof window.claude.use==='function'))return null;
+    const sample=await window.claude.use('sample');if(!sample)return null;
+    const lim=await sample.limits().catch(()=>null);
+    return lim&&lim.images?sample:null;
+  }catch(e){return null;}
+}
+function ticketPromptClaude(){
+  const subs=Object.values(SUBCATS_GASTO).flat();
+  return `Eres auxiliar de gastos de una administración de departamentos en renta en México. La imagen es UN comprobante (ticket térmico, nota de remisión a mano, factura o recibo). Extrae con exactitud; lo que no se lea va como null.
+- "proveedor": el negocio o persona que cobra.
+- "fecha": AAAA-MM-DD. El mes puede venir en números romanos (27/XII/2025 = 2025-12-27). Si no trae año, null.
+- "total": monto final pagado, número sin $. Si no hay total escrito, suma los importes legibles.
+- "subcat": exactamente una de estas claves según lo comprado: ${subs.join(' | ')}; o "" si ninguna aplica.
+- "articulos": hasta 6 nombres cortos de lo comprado.
+- "confianza": de 0 a 1.
+Responde solo con JSON: {"proveedor":"","fecha":null,"total":0,"subcat":"","articulos":[],"confianza":0.9}`;
+}
+async function leerTicketGasto(file){
+  if(!file)return;
+  const pinta=h=>{const st=document.getElementById('ticket-status');if(st)st.innerHTML=h;};
+  try{
+    pinta('🖼️ Preparando imagen…');
+    const cv=await ticketPrepararImagen(file);
+    let r=null,motor='';
+    const claude=await ticketLectorClaude();
+    if(claude){
+      pinta('🤖 Leyendo con Claude…');
+      try{
+        const blob=await new Promise(res=>cv.toBlob(res,'image/jpeg',0.85));
+        const o=await claude.json(ticketPromptClaude(),{images:[blob]});
+        const x=(Array.isArray(o)?o[0]:o)||{};
+        const subs=Object.values(SUBCATS_GASTO).flat(),subcat=subs.includes(x.subcat)?x.subcat:'';
+        r={proveedor:String(x.proveedor||'').trim(),fecha:/^\d{4}-\d{2}-\d{2}$/.test(x.fecha||'')?x.fecha:null,total:x.total==null?null:presupParse(x.total),
+           subcat,cat:Object.keys(SUBCATS_GASTO).find(c=>SUBCATS_GASTO[c].includes(subcat))||'',
+           articulos:Array.isArray(x.articulos)?x.articulos.map(String).slice(0,6):[],confianza:Math.min(1,Math.max(0,Number(x.confianza)||0.7)),metodoTotal:'Claude'};
+        motor='Claude';
+      }catch(e){console.warn('[ticket] Claude no pudo, uso OCR local:',e);}
+    }
+    if(!r){
+      pinta('⏳ Cargando lector… <span style="color:var(--dim)">(solo la primera vez descarga ~3 MB)</span>');
+      _ocrProg=m=>{
+        if(m.status==='recognizing text')pinta(`🔎 Leyendo ticket… ${Math.round((m.progress||0)*100)}%`);
+        else if(m.status&&/load|init/i.test(m.status))pinta(`⏳ ${/traineddata/.test(m.status)?'Descargando español':'Preparando lector'}… ${Math.round((m.progress||0)*100)}%`);
+      };
+      const w=await ocrWorker();
+      const {data}=await w.recognize(cv);
+      _ocrProg=null;
+      r=ticketParse(data.text,data.confidence);r.texto=data.text;motor='lectura local';
+    }
+    ticketAplicar(r,motor);
+  }catch(e){
+    console.error('[ticket]',e);_ocrProg=null;
+    pinta(`<span style="color:var(--r)">⚠️ ${e.message||'No se pudo leer el ticket'}</span>`);
+  }
+}
+function ticketTitulo(s){return String(s).toLowerCase().replace(/(^|\s)\S/g,c=>c.toUpperCase());}
+// Vuelca lo leído al formulario de gasto y resalta en amarillo lo que llenó (para revisar)
+function ticketAplicar(r,motor){
+  const marca=el=>{if(!el)return;el.style.background='#FFF6D6';el.style.borderColor='#E8C766';const off=()=>{el.style.background='';el.style.borderColor='';};el.addEventListener('input',off,{once:true});el.addEventListener('change',off,{once:true});};
+  const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!==null&&v!==undefined&&v!==''){el.value=v;marca(el);}};
+  if(r.total!=null)set('g-monto',r.total);
+  if(r.fecha)set('g-fecha',r.fecha);
+  const desc=document.getElementById('g-desc');
+  if(desc&&r.proveedor&&(!desc.value||desc.dataset.ticket)){desc.value=ticketTitulo(r.proveedor);desc.dataset.ticket='1';marca(desc);}
+  if(r.cat&&document.getElementById('g-cat')){
+    selectCat(r.cat);
+    if(r.subcat){const sc=document.getElementById('g-subcat');if(sc){sc.value=r.subcat;marca(sc);}}
+  }
+  const notas=document.getElementById('g-notas');
+  if(notas&&r.articulos&&r.articulos.length&&(!notas.value||notas.dataset.ticket)){notas.value=('Ticket: '+r.articulos.join(', ')).slice(0,140);notas.dataset.ticket='1';marca(notas);}
+  const pct=Math.round((r.confianza||0)*100),col=pct>=80?'var(--g)':pct>=55?'var(--y)':'var(--r)';
+  const falt=[r.total==null?'monto':'',!r.fecha?'fecha':'',!r.proveedor?'proveedor':''].filter(Boolean);
+  const st=document.getElementById('ticket-status');if(!st)return;
+  st.innerHTML=`<div style="background:#FFFBEA;border:1px solid #F0D9A0;border-radius:9px;padding:9px 11px;font-size:11.5px;line-height:1.4;color:var(--txt)">
+    <div style="display:flex;justify-content:space-between;gap:8px"><b>✓ Ticket leído · ${motor}</b><span style="color:${col};font-weight:700">${pct}%</span></div>
+    <div style="margin-top:3px">${r.proveedor?ticketTitulo(r.proveedor):'—'} · ${r.total!=null?fmt(r.total):'sin monto'} · ${r.fecha||'sin fecha'}${r.subcat?' · '+presupLineLabel(r.subcat):''}</div>
+    <div style="color:var(--dim);margin-top:3px">${falt.length?'⚠️ No encontré: '+falt.join(', ')+'. ':''}${r.metodoTotal==='monto mayor (revisar)'?'⚠️ No vi la palabra TOTAL; tomé el monto más alto. ':''}Revisa lo resaltado y elige propietario e inmueble.</div>
+    ${r.texto?`<details style="margin-top:5px"><summary style="cursor:pointer;color:var(--b)">Ver texto leído</summary><pre style="white-space:pre-wrap;font-size:10px;max-height:160px;overflow:auto;margin-top:4px;background:#fff;padding:6px;border-radius:6px">${String(r.texto).replace(/</g,'&lt;')}</pre></details>`:''}
+  </div>`;
+}
 
 function inferCategoryFromDesc(desc){
   if(!desc||desc.length<3)return;
