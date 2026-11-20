@@ -242,7 +242,7 @@ textarea.fi{resize:vertical;min-height:60px}
 </div>
 <script>
 // ─── State ─────────────────────────────────────────────
-let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[],cronograma_estado:[],gastos_favoritos:[],presupuestos:[],tecnicos:[],ordenes_pago:[]};
+let DB={inquilinos:[],pagos:[],servicios:[],gastos:[],obras:[],incidentes:[],otros_ingresos:[],inmuebles:[],inspecciones:[],recibos_servicios:[],pagos_servicios:[],bitacora:[],carteras:[],propietarios:[],cronograma_estado:[],gastos_favoritos:[],presupuestos:[],tecnicos:[],ordenes_pago:[],presup_lineas:[]};
 let curView='dash',detTenant=null,curMes=null,curAnio=null,conSub='lista',expandedInm={},rangeMode='hoy',rangeStart=null,rangeEnd=null,propFilter='todos';
 let gestSub='gastos',incFilter='abiertos';
 const MN=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -368,7 +368,7 @@ let cloudUnsubs = [];
 let saveTimers = {};
 let cloudStateNow = 'offline';
 let cloudMsgNow = 'Sin sincronización';
-const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios','cronograma_estado','gastos_favoritos','presupuestos','tecnicos','ordenes_pago'];
+const SYNC_COLLS = ['inquilinos','pagos','servicios','gastos','obras','incidentes','otros_ingresos','inmuebles','inspecciones','recibos_servicios','pagos_servicios','bitacora','carteras','propietarios','cronograma_estado','gastos_favoritos','presupuestos','tecnicos','ordenes_pago','presup_lineas'];
 const PHOTO_COLLS = ['obras','incidentes','inspecciones']; // photos stay in localStorage
 
 function setCloudStatus(state, msg) {
@@ -2327,7 +2327,7 @@ function openAddGasto(id,prefill){
 
     <div class="fg">
       <label class="fl">Subcategoría (opcional · para presupuesto)</label>
-      <select class="fi" id="g-subcat">${renderSubcatOptions(currentCat,g.subcat||'')}</select>
+      <select class="fi" id="g-subcat" onchange="if(this.value==='__nueva__')gastoNuevaSubcat(this)">${renderSubcatOptions(currentCat,g.subcat||'')}</select>
     </div>
 
     <div class="fg">
@@ -2412,7 +2412,7 @@ function saveGasto(id){
   const now=new Date();
   const fechaLocal=new Date(yy,mm-1,dd,now.getHours(),now.getMinutes(),now.getSeconds());
   const obj={
-    categoria:cat,subcat:(document.getElementById('g-subcat')?.value||''),monto:Number(monto),descripcion:desc,
+    categoria:cat,subcat:((document.getElementById('g-subcat')?.value||'').replace('__nueva__','')),monto:Number(monto),descripcion:desc,
     fecha:fechaLocal.toISOString(),
     propietarioId:propId,inmueble:inm,
     notas:document.getElementById('g-notas').value.trim()
@@ -6152,6 +6152,9 @@ const PRESUP_SECCIONES=[
     {k:'ganancia_final',l:'GANANCIA − GERENCIALES − PERSONALES',tipo:'calc'},
   ]},
 ];
+// ids y grupo de cálculo de las secciones base (opex = operativo, ger = gerencial, pers = personal)
+[['ingresos',null],['egresos','opex'],['resultado_op',null],['gerenciales','ger'],['personales','pers'],['resultado',null]].forEach(([id,b],i)=>{const s=PRESUP_SECCIONES[i];s.id=id;s.b=b;s.home=!!b;s.lineas.forEach(l=>{if(l.tipo==='edit')l.b=b;});});
+const PRESUP_BASE=JSON.parse(JSON.stringify(PRESUP_SECCIONES));
 // Subcategorías opcionales de gasto → mapean a línea del presupuesto (misma clave)
 const SUBCATS_GASTO={
   carros:['trans_gasolina','trans_mecanico'],
@@ -6160,7 +6163,163 @@ const SUBCATS_GASTO={
   servicios:['serv_agua','serv_luz','serv_basura','serv_internet','serv_movistar','serv_bait','predial','seguros'],
   otros:['ger_super','ger_temu','ger_amenidades_irma','ger_comida','gastos_personales']
 };
-function presupLineLabel(k){for(const s of PRESUP_SECCIONES)for(const l of s.lineas)if(l.k===k)return l.l;return k;}
+const SUBCATS_BASE=JSON.parse(JSON.stringify(SUBCATS_GASTO));
+// ── Conceptos y categorías propios del presupuesto ──
+// DB.presup_lineas = [{id, tipo:'sec'|'linea', nombre, k (clave de línea), sec (id de categoría), b ('opex'|'ger'|'pers', en categorías), cat (categoría de gasto), color, borrado}]
+// El árbol base (PRESUP_BASE) no se modifica: en cada cambio se reconstruye PRESUP_SECCIONES = base + lo propio,
+// y SUBCATS_GASTO = base + conceptos propios (para que aparezcan al capturar gastos).
+const PRESUP_COLORES=['#2F7CC2','#7A5AA6','#1E8C8C','#C0662F','#5C6F2E','#A63D6B','#3D5AA6'];
+const PRESUP_BOLSAS={opex:'Gasto operativo (resta antes de la ganancia)',ger:'Gasto gerencial',pers:'Gasto personal'};
+let _presupSig=null;
+function presupSync(){
+  const sig=JSON.stringify(DB.presup_lineas||[]);
+  if(sig===_presupSig)return;_presupSig=sig;
+  const cus=(DB.presup_lineas||[]).filter(x=>!x.borrado);
+  const secs=cus.filter(x=>x.tipo==='sec'),lins=cus.filter(x=>x.tipo==='linea');
+  const base=JSON.parse(JSON.stringify(PRESUP_BASE));
+  const mk=(l,b)=>({k:l.k,l:l.nombre,tipo:'edit',b,custom:true,cid:l.id});
+  base.forEach(s=>{
+    const add=lins.filter(l=>l.sec===s.id).map(l=>mk(l,s.b));if(!add.length)return;
+    const i=s.lineas.findIndex(x=>x.tipo==='calc');if(i>=0)s.lineas.splice(i,0,...add);else s.lineas.push(...add);
+  });
+  const out=[];
+  base.forEach(s=>{
+    out.push(s);if(!s.home)return;
+    const mias=secs.filter(c=>c.b===s.b);
+    mias.forEach(c=>{
+      const ls=lins.filter(l=>l.sec===c.id).map(l=>mk(l,c.b));
+      ls.push({k:'secsub_'+c.id,l:'Subtotal '+c.nombre.toLowerCase(),tipo:'calc'});
+      out.push({id:c.id,sec:c.nombre.toUpperCase(),color:c.color||'#2F7CC2',b:c.b,custom:true,cid:c.id,lineas:ls});
+    });
+    // el subtotal del grupo (gastos operativos / gerenciales) baja al final de su última categoría
+    const subKey=s.b==='opex'?'opex_subtotal':s.b==='ger'?'ger_subtotal':null;
+    if(mias.length&&subKey){const i=s.lineas.findIndex(x=>x.k===subKey);if(i>=0){const [row]=s.lineas.splice(i,1);out[out.length-1].lineas.push(row);}}
+  });
+  PRESUP_SECCIONES.length=0;out.forEach(s=>PRESUP_SECCIONES.push(s));
+  Object.keys(SUBCATS_BASE).forEach(c=>{SUBCATS_GASTO[c]=[...SUBCATS_BASE[c]];});
+  lins.forEach(l=>{const c=SUBCATS_GASTO[l.cat]?l.cat:'otros';if(!SUBCATS_GASTO[c].includes(l.k))SUBCATS_GASTO[c].push(l.k);});
+}
+function presupLineLabel(k){
+  presupSync();
+  for(const s of PRESUP_SECCIONES)for(const l of s.lineas)if(l.k===k)return l.l;
+  const c=(DB.presup_lineas||[]).find(x=>x.k===k);return c?c.nombre:k;
+}
+function presupLimpiaNombre(s){return String(s||'').replace(/[<>"`]/g,'').replace(/\s+/g,' ').trim().slice(0,60);}
+function presupDespuesDeCambio(){presupSync();if(document.getElementById('presup-sheet'))renderPresupHoja();}
+function presupSecOpciones(sel){presupSync();return PRESUP_SECCIONES.filter(s=>s.b).map(s=>`<option value="${s.id}"${s.id===sel?' selected':''}>${s.sec} · ${({opex:'operativo',ger:'gerencial',pers:'personal'})[s.b]}</option>`).join('');}
+function presupNuevoConcepto(secId,editId){
+  presupSync();
+  const ed=editId?(DB.presup_lineas||[]).find(x=>x.id===editId):null;
+  const sec=ed?ed.sec:(secId||'egresos');
+  const so=PRESUP_SECCIONES.find(s=>s.id===sec);
+  const catDef=ed?ed.cat:(so&&so.b==='opex'?'servicios':'otros');
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">${ed?'✏️ Editar concepto':'➕ Nuevo concepto'}</div>
+    <div class="fg"><label class="fl">Nombre</label><input class="fi" id="pc-nombre" value="${ed?ed.nombre:''}" placeholder="Ej: Abogados" maxlength="60"></div>
+    <div class="fg"><label class="fl">Va en la categoría</label><select class="fi" id="pc-sec">${presupSecOpciones(sec)}</select></div>
+    <div class="fg"><label class="fl">Al capturar un gasto aparece como subcategoría de</label><select class="fi" id="pc-cat">${Object.entries(CATS_GASTO).map(([k,v])=>`<option value="${k}"${k===catDef?' selected':''}>${v.i} ${v.n}</option>`).join('')}</select></div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px;line-height:1.4">Los gastos que registres con esta subcategoría se suman solos en la columna <b>Real</b>.</div>
+    <button class="btn bg bfu" onclick="presupGuardarConcepto('${editId||''}')">Guardar</button>
+    ${ed?`<button class="btn bd bfu" style="margin-top:8px" onclick="presupBorrarConcepto('${ed.id}')">🗑️ Quitar concepto</button>`:''}
+    <button class="btn bo bfu" style="margin-top:8px" onclick="closeM()">Cancelar</button><div style="height:10px"></div></div>`);
+  setTimeout(()=>{const i=document.getElementById('pc-nombre');if(i&&!ed)i.focus();},120);
+}
+function presupGuardarConcepto(editId){
+  const nombre=presupLimpiaNombre(document.getElementById('pc-nombre').value);
+  const sec=document.getElementById('pc-sec').value,cat=document.getElementById('pc-cat').value;
+  if(!nombre){snack('Escribe un nombre');return;}
+  if(!DB.presup_lineas)DB.presup_lineas=[];
+  presupSync();
+  const dup=PRESUP_SECCIONES.some(s=>s.lineas.some(l=>l.tipo==='edit'&&l.l.toLowerCase()===nombre.toLowerCase()&&(!editId||l.cid!==editId)));
+  if(dup){snack('Ya existe un concepto con ese nombre');return;}
+  if(editId){const ed=DB.presup_lineas.find(x=>x.id===editId);if(ed){ed.nombre=nombre;ed.sec=sec;ed.cat=cat;ed.actualizado=nowISO();}}
+  else DB.presup_lineas.push({id:uid(),tipo:'linea',k:'cus_'+uid(),nombre,sec,cat,creado:nowISO()});
+  saveDB('presup_lineas');closeM();presupDespuesDeCambio();
+  snack(editId?'✓ Concepto actualizado':`✓ "${nombre}" agregado`);
+}
+function presupBorrarConcepto(id){
+  const c=(DB.presup_lineas||[]).find(x=>x.id===id);if(!c)return;
+  const meses=DB.presupuestos.filter(p=>Number((p.lineas||{})[c.k]||0)!==0).length;
+  const gastos=DB.gastos.filter(g=>g.subcat===c.k).length;
+  let msg=`¿Quitar "${c.nombre}" del presupuesto?`;
+  if(meses||gastos)msg+=`\n\nTiene montos en ${meses} mes(es) y ${gastos} gasto(s) ligado(s). Esos datos se conservan, pero dejan de sumarse en el presupuesto.`;
+  if(!confirm(msg))return;
+  c.borrado=true;c.actualizado=nowISO();
+  saveDB('presup_lineas');closeM();presupDespuesDeCambio();snack('Concepto quitado');
+}
+function presupNuevaSeccion(editId){
+  const ed=editId?(DB.presup_lineas||[]).find(x=>x.id===editId):null;
+  modal(`<div class="ms"><div class="mh"></div>
+    <div class="mt2">${ed?'✏️ Editar categoría':'➕ Nueva categoría'}</div>
+    <div class="fg"><label class="fl">Nombre</label><input class="fi" id="ps-nombre" value="${ed?ed.nombre:''}" placeholder="Ej: Servicios profesionales" maxlength="60"></div>
+    <div class="fg"><label class="fl">Cuenta como</label><select class="fi" id="ps-b">${Object.entries(PRESUP_BOLSAS).map(([k,v])=>`<option value="${k}"${(ed?ed.b:'opex')===k?' selected':''}>${v}</option>`).join('')}</select></div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px;line-height:1.4">Tendrá su propio subtotal y se suma a su grupo para calcular la ganancia.</div>
+    <button class="btn bg bfu" onclick="presupGuardarSeccion('${editId||''}')">${ed?'Guardar':'Crear y agregar su primer concepto →'}</button>
+    ${ed?`<button class="btn bd bfu" style="margin-top:8px" onclick="presupBorrarSeccion('${ed.id}')">🗑️ Quitar categoría</button>`:''}
+    <button class="btn bo bfu" style="margin-top:8px" onclick="closeM()">Cancelar</button><div style="height:10px"></div></div>`);
+  setTimeout(()=>{const i=document.getElementById('ps-nombre');if(i&&!ed)i.focus();},120);
+}
+function presupGuardarSeccion(editId){
+  const nombre=presupLimpiaNombre(document.getElementById('ps-nombre').value),b=document.getElementById('ps-b').value;
+  if(!nombre){snack('Escribe un nombre');return;}
+  if(!DB.presup_lineas)DB.presup_lineas=[];
+  presupSync();
+  if(PRESUP_SECCIONES.some(s=>s.sec.toLowerCase()===nombre.toLowerCase()&&s.cid!==editId)){snack('Ya existe una categoría con ese nombre');return;}
+  if(editId){const ed=DB.presup_lineas.find(x=>x.id===editId);if(ed){ed.nombre=nombre;ed.b=b;ed.actualizado=nowISO();}saveDB('presup_lineas');closeM();presupDespuesDeCambio();snack('✓ Categoría actualizada');return;}
+  const n=DB.presup_lineas.filter(x=>x.tipo==='sec').length;
+  const s={id:'sec_'+uid(),tipo:'sec',nombre,b,color:PRESUP_COLORES[n%PRESUP_COLORES.length],creado:nowISO()};
+  DB.presup_lineas.push(s);saveDB('presup_lineas');closeM();presupDespuesDeCambio();
+  presupNuevoConcepto(s.id);snack('✓ Categoría creada — agrega su primer concepto');
+}
+function presupBorrarSeccion(id){
+  const s=(DB.presup_lineas||[]).find(x=>x.id===id);if(!s)return;
+  const ls=DB.presup_lineas.filter(x=>x.tipo==='linea'&&x.sec===id&&!x.borrado);
+  if(!confirm(`¿Quitar la categoría "${s.nombre}"?${ls.length?`\n\nTambién se quitan sus ${ls.length} concepto(s). Los montos capturados se conservan, pero dejan de sumarse.`:''}`))return;
+  s.borrado=true;ls.forEach(l=>{l.borrado=true;});s.actualizado=nowISO();
+  saveDB('presup_lineas');closeM();presupDespuesDeCambio();snack('Categoría quitada');
+}
+function presupConceptos(){
+  presupSync();
+  let h='';
+  PRESUP_SECCIONES.filter(s=>s.b).forEach(s=>{
+    const propios=s.lineas.filter(l=>l.custom),orig=s.lineas.filter(l=>l.tipo==='edit'&&!l.custom).length;
+    h+=`<div style="border:1px solid #E4E9EF;border-left:4px solid ${s.color};border-radius:9px;padding:9px 11px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="min-width:0"><div style="font-size:12px;font-weight:700">${s.sec}</div><div style="font-size:10px;color:var(--dim)">${({opex:'operativo',ger:'gerencial',pers:'personal'})[s.b]}${orig?' · '+orig+' conceptos originales':''}</div></div>
+        ${s.custom?`<button class="btn bo bsm" style="padding:4px 9px" onclick="presupNuevaSeccion('${s.cid}')">✏️</button>`:''}
+      </div>
+      ${propios.map(l=>`<div onclick="presupNuevoConcepto(null,'${l.cid}')" style="display:flex;justify-content:space-between;padding:6px 0 2px;border-top:1px solid #EEF1F4;margin-top:6px;font-size:12px;cursor:pointer"><span>${l.l}</span><span style="color:var(--dim)">✏️</span></div>`).join('')}
+      <div onclick="presupNuevoConcepto('${s.id}')" style="font-size:11px;color:var(--b);font-weight:600;margin-top:6px;cursor:pointer">＋ Agregar concepto aquí</div>
+    </div>`;
+  });
+  modal(`<div class="ms" style="max-height:94vh"><div class="mh"></div>
+    <div class="mt2">⚙️ Conceptos del presupuesto</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px;line-height:1.4">Agrega conceptos (subcategorías) a cualquier grupo, o crea una categoría nueva con su propio subtotal. Los originales no se pueden quitar.</div>
+    ${h}
+    <button class="btn bg bfu" style="margin-top:4px" onclick="presupNuevaSeccion()">➕ Nueva categoría</button>
+    <button class="btn bo bfu" style="margin-top:8px" onclick="closeM()">Cerrar</button><div style="height:10px"></div></div>`);
+}
+// Desde el formulario de gasto: "➕ Nueva subcategoría…"
+function gastoNuevaSubcat(sel){
+  const cat=(document.getElementById('g-cat')||{}).value||'otros';
+  const nombre=presupLimpiaNombre(prompt('Nombre de la nueva subcategoría (ej. Abogados):')||'');
+  if(!nombre){sel.value='';return;}
+  presupSync();
+  const ex=PRESUP_SECCIONES.flatMap(s=>s.lineas).find(l=>l.tipo==='edit'&&l.l.toLowerCase()===nombre.toLowerCase());
+  let k;
+  if(ex){
+    k=ex.k;
+    if(ex.custom){const c=DB.presup_lineas.find(x=>x.k===k);if(c&&c.cat!==cat){c.cat=cat;saveDB('presup_lineas');}}
+    else if(!(SUBCATS_GASTO[cat]||[]).includes(k)){snack('Ese concepto ya existe en otra categoría de gasto');sel.value='';return;}
+  }else{
+    k='cus_'+uid();if(!DB.presup_lineas)DB.presup_lineas=[];
+    DB.presup_lineas.push({id:uid(),tipo:'linea',k,nombre,sec:'egresos',cat,creado:nowISO()});saveDB('presup_lineas');
+  }
+  presupSync();
+  sel.innerHTML=renderSubcatOptions(cat,k);sel.value=k;
+  snack(ex?'Ya existía; quedó seleccionada':`✓ "${nombre}" creada (en Egresos fijos del presupuesto)`);
+}
+
 
 // ═══════════ PRESUPUESTO · hoja anual tipo Excel + detalle mensual ═══════════
 // Modelo: DB.presupuestos = [{id, propietarioId, anio, mes(0-11), lineas:{clave:monto}, creado}]
@@ -6170,7 +6329,7 @@ let presupCtx={propId:null,anio:null,mes:null};           // detalle mensual abi
 let presupHoja={propId:null,anio:null,modo:'presup'};     // hoja anual: modo presup | real | dif
 const PRESUP_KEYS_INGRESO=['num_deptos','renta_mensual','ingreso_estimado','ganancia_op','ganancia_bruta','ganancia_final'];
 const PRESUP_AUTO_KEYS=['num_deptos','renta_mensual'];
-function presupEditKeys(){return PRESUP_SECCIONES.flatMap(s=>s.lineas.filter(l=>l.tipo==='edit').map(l=>l.k));}
+function presupEditKeys(){presupSync();return PRESUP_SECCIONES.flatMap(s=>s.lineas.filter(l=>l.tipo==='edit').map(l=>l.k));}
 
 function findPresupuesto(propId,anio,mes){return DB.presupuestos.find(x=>x.propietarioId===propId&&x.anio===anio&&x.mes===mes)||null;}
 function ensurePresupuesto(propId,anio,mes){
@@ -6225,11 +6384,14 @@ function presupBase(propId,anio,mes,modo,idx){
   if(modo==='presup'){const ing=presupIngresoMes(propId,anio,mes);V.num_deptos=ing.deptos;V.renta_mensual=ing.renta;}
   else{const c=cobradoMes(propId,anio,mes);V.num_deptos=c.n;V.renta_mensual=c.monto;}
   V.ingreso_estimado=V.renta_mensual;
-  V.opex_subtotal=PRESUP_SECCIONES[1].lineas.filter(x=>x.tipo==='edit').reduce((s,x)=>s+V[x.k],0);
+  const edits=PRESUP_SECCIONES.flatMap(s=>s.lineas.filter(l=>l.tipo==='edit'));
+  const suma=b=>edits.filter(l=>l.b===b).reduce((s,l)=>s+(V[l.k]||0),0);
+  PRESUP_SECCIONES.filter(s=>s.custom).forEach(s=>{V['secsub_'+s.id]=s.lineas.filter(l=>l.tipo==='edit').reduce((a,l)=>a+(V[l.k]||0),0);});
+  V.opex_subtotal=suma('opex');
   V.ganancia_op=V.ingreso_estimado-V.opex_subtotal;
-  V.ger_subtotal=['ger_super','ger_temu','ger_amenidades_irma','ger_comida'].reduce((s,k)=>s+V[k],0);
+  V.ger_subtotal=suma('ger');
   V.ganancia_bruta=V.ganancia_op;
-  V.ganancia_final=V.ganancia_op-V.ger_subtotal-(V.gastos_personales||0);
+  V.ganancia_final=V.ganancia_op-V.ger_subtotal-suma('pers');
   return V;
 }
 // 'dif' = diferencia A FAVOR: en gastos presupuesto−real; en ingresos/ganancias real−presupuesto
@@ -6303,10 +6465,14 @@ function renderPresupHoja(){
   const cls=v=>modo==='dif'?(v<0?'neg':v>0?'pos':''):(v<0?'neg':'');
   let rows='';let ri=0;
   PRESUP_SECCIONES.forEach(s=>{
-    rows+=`<tr class="sec"><td class="c0" style="background:${s.color}">${s.sec}</td><td colspan="13" style="background:${s.color}"></td></tr>`;
+    rows+=`<tr class="sec"><td class="c0" style="background:${s.color}">${s.sec}${s.custom&&editable?` <span onclick="presupNuevaSeccion('${s.cid}')" style="cursor:pointer;font-weight:400;opacity:.9">✎</span>`:''}</td><td colspan="13" style="background:${s.color}"></td></tr>`;
+    let addHecho=!(editable&&s.b);
+    const addRow=()=>`<tr><td class="c0" style="background:#fff"><span onclick="presupNuevoConcepto('${s.id}')" style="color:var(--b);font-size:11px;cursor:pointer;font-weight:600">＋ Agregar concepto</span></td><td colspan="13" style="background:#fff"></td></tr>`;
     s.lineas.forEach(l=>{
       const isCalc=l.tipo==='calc';
-      let tr=`<tr class="${isCalc?'calc':''}"><td class="c0" style="background:${isCalc?'#F3F6FA':'#fff'}">${l.l}</td>`;
+      if(isCalc&&!addHecho){rows+=addRow();addHecho=true;}
+      const etq=l.custom&&editable?`<span onclick="presupNuevoConcepto(null,'${l.cid}')" style="cursor:pointer;border-bottom:1px dashed #9AA8B8">${l.l}</span> <span style="font-size:9px;color:var(--dim)">✎</span>`:l.l;
+      let tr=`<tr class="${isCalc?'calc':''}"><td class="c0" style="background:${isCalc?'#F3F6FA':'#fff'}">${etq}</td>`;
       let tot=0;
       for(let m=0;m<12;m++){
         const v=V[m][l.k]||0;tot+=v;
@@ -6325,6 +6491,7 @@ function renderPresupHoja(){
       tr+=`<td class="num tot"><span id="pt-${l.k}" class="${l.k==='num_deptos'?'':cls(tot)}">${totTxt}</span></td></tr>`;
       rows+=tr;ri++;
     });
+    if(!addHecho)rows+=addRow();
   });
   const props=DB.propietarios.slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
   const modos=[['presup','✏️ Presupuesto'],['real','📊 Real'],['dif','± Diferencia']];
@@ -6333,6 +6500,7 @@ function renderPresupHoja(){
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <button class="btn bo bsm" onclick="closePresupHoja()" style="padding:6px 10px">✕</button>
       <div style="font-weight:700;font-size:15px;flex:1">📋 Presupuesto</div>
+      <button class="btn bo bsm" onclick="presupConceptos()">⚙️ Conceptos</button>
       <button class="btn bs bsm" onclick="exportPresupExcel()">📊 Excel</button>
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
@@ -8541,8 +8709,9 @@ function inferCategoryFromDesc(desc){
 }
 
 function renderSubcatOptions(cat,sel){
+  presupSync();
   const subs=SUBCATS_GASTO[cat]||[];
-  return '<option value="">— Ninguna —</option>'+subs.map(k=>`<option value="${k}"${sel===k?' selected':''}>${presupLineLabel(k)}</option>`).join('');
+  return '<option value="">— Ninguna —</option>'+subs.map(k=>`<option value="${k}"${sel===k?' selected':''}>${presupLineLabel(k)}</option>`).join('')+'<option value="__nueva__">➕ Nueva subcategoría…</option>';
 }
 function selectCat(cat){
   const inp=document.getElementById('g-cat');if(!inp)return;
